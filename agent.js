@@ -1,269 +1,300 @@
 import { DeliverooApi } from "@unitn-asa/deliveroo-js-client";
 
 const client = new DeliverooApi(
-    'http://localhost:8080',
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjMwZTU2ZDYwN2MyIiwibmFtZSI6InRlc3QxIiwiaWF0IjoxNzEzNzg5NDI1fQ.hovsONlTbtjfcf3LiGcOZ9YlCNVD93XC7WPtC3AdkAE'
-)
+  "http://localhost:8080",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjMwZTU2ZDYwN2MyIiwibmFtZSI6InRlc3QxIiwiaWF0IjoxNzEzNzg5NDI1fQ.hovsONlTbtjfcf3LiGcOZ9YlCNVD93XC7WPtC3AdkAE"
+);
 
-function distance( {x:x1, y:y1}, {x:x2, y:y2}) {
-    const dx = Math.abs( Math.round(x1) - Math.round(x2) )
-    const dy = Math.abs( Math.round(y1) - Math.round(y2) )
-    return dx + dy;
+function distance({ x: x1, y: y1 }, { x: x2, y: y2 }) {
+  const dx = Math.abs(Math.round(x1) - Math.round(x2));
+  const dy = Math.abs(Math.round(y1) - Math.round(y2));
+  return dx + dy;
 }
 
-/**
- * Belief revision function
-**/
-
-/**
- * @type {id, name, x, y, score}
- */
-var me = {};
-client.onYou(({id, name, x, y, score}) => {
-    me.id = id;
-    me.name = name;
-    me.x = x;
-    me.y = y;
-    me.score = score;
+// * Beliefset revision function
+const me = {};
+client.onYou(({ id, name, x, y, score }) => {
+  me.id = id;
+  me.name = name;
+  me.x = x;
+  me.y = y;
+  me.score = score;
 });
 /**
  * @type {Map<id,{id, x, y, carriedBy, reward}>}
  */
 const parcels = new Map();
 var carrying_parcels = 0;
+var map_tiles = [];
 var delivery_tiles = [];
 const CONFIG = {};
 client.onConfig((config) => {
-    CONFIG.PARCELS_MAX = config["PARCELS_MAX"];
-    CONFIG.MOVEMENT_STEPS = config["MOVEMENT_STEPS"];
-    CONFIG.MOVEMENT_DURATION = config["MOVEMENT_DURATION"];
-    CONFIG.PARCEL_DECADING_INTERVAL = config["PARCEL_DECADING_INTERVAL"];
-    CONFIG.CLOCK = config["CLOCK"];
+  CONFIG.PARCELS_MAX = config["PARCELS_MAX"];
+  CONFIG.MOVEMENT_STEPS = config["MOVEMENT_STEPS"];
+  CONFIG.MOVEMENT_DURATION = config["MOVEMENT_DURATION"];
+  CONFIG.AGENTS_OBSERVATION_DISTANCE = config["AGENTS_OBSERVATION_DISTANCE"];
+  CONFIG.PARCEL_DECADING_INTERVAL = config["PARCEL_DECADING_INTERVAL"];
+  CONFIG.CLOCK = config["CLOCK"];
 });
 client.onParcelsSensing(async (perceived_parcels) => {
-    // Take into account the time and the decadence speed of the parcels
-    // Parcels have a reward that decays over time
-    for (const p of perceived_parcels) { parcels.set(p.id, p); }
+  for (const p of perceived_parcels) {
+    parcels.set(p.id, p);
+  }
 });
-client.onTile((x, y, delivery) => { if (!delivery) { return; } delivery_tiles.push({x, y}); });
+client.onTile((x, y, delivery) => {
+  map_tiles.push({ x, y });
+  if (!delivery) { return; }
+  delivery_tiles.push({ x, y });
+});
 
-var clock = 0;
-function updateParcels() {
-    // this method gets called at each clock cycle
-    clock += 1;
-    if (clock >= ((CONFIG.PARCEL_DECADING_INTERVAL * 1000) / CONFIG.CLOCK) == 0) {
-        clock = 0;
-        for (const [id, parcel] of parcels) {
-            // decay the parcels
-            parcel.reward -= 1;
-        }
-        // if parcel reward is 0 remove it from array
-        for (const [id, parcel] of parcels) {
-            if (parcel.reward == 0) { parcels.delete(id); }
-        }
+// * Options generation and filtering function
+client.onParcelsSensing((parcels) => {
+  // TODO revisit beliefset revision so to trigger option generation only in the case a new parcel is observed
+  // * Options generation
+  const options = [];
+  for (const parcel of parcels.values()) { if (!parcel.carriedBy) { options.push(["go_pick_up", parcel.x, parcel.y, parcel.id]); } }
+  if (carrying_parcels > 0) { for (const delivery of delivery_tiles) { options.push(["go_put_down", delivery.x, delivery.y, null]); } }
+  // * Options filtering
+  let must_deliver = carrying_parcels >= CONFIG.PARCELS_MAX; // ? Se ho più di un pacco devo per forza consegnare [ Temporaneo per testing ]
+  let nothing_to_deliver = carrying_parcels == 0;
+  if (must_deliver && nothing_to_deliver) { console.log("PARCELS_MAX Cannot Be Set To 0 !!!"); return; }
+  let best_option;
+  let nearest = Number.MAX_VALUE;
+  for (const option of options) {
+    if (must_deliver && option[0] == "go_pick_up") { continue; }
+    if (nothing_to_deliver && option[0] == "go_put_down") { continue; }
+    let [go_pick_up, x, y, id] = option;
+    let current_d = distance({ x, y }, me);
+    if (current_d < nearest) {
+      best_option = option;
+      nearest = current_d;
     }
+  }
+  // * Best option is selected
+  if (best_option) { myAgent.push(best_option); }
+});
+// client.onAgentsSensing( agentLoop )
+// client.onYou( agentLoop )
+
+// * Intention revision loop
+class IntentionRevision {
+  #intention_queue = new Array();
+  get intention_queue() { return this.#intention_queue; }
+
+  async loop() {
+    while (true) {
+      // Consumes intention_queue if not empty
+      if (this.intention_queue.length > 0) {
+        console.log("intentionRevision.loop", this.intention_queue.map((i) => i.predicate));
+        // Current intention
+        const intention = this.intention_queue[0];
+        // Is queued intention still valid? Do I still want to achieve it?
+        // TODO this hard-coded implementation is an example
+        let id = intention.predicate[2];
+        let p = parcels.get(id);
+        if (p && p.carriedBy) {
+          console.log("Skipping intention because no more valid", intention.predicate);
+          continue;
+        }
+        // Start achieving intention
+        await intention
+          .achieve()
+          // Catch eventual error and continue
+          .catch((error) => { console.log('Failed intention', ...intention.predicate, 'with error:', error) });
+        // Remove from the queue
+        this.intention_queue.shift();
+      }
+      // Postpone next iteration at setImmediate
+      await new Promise((res) => setImmediate(res));
+    }
+  }
+  // async push ( predicate ) { }
+  log(...args) { console.log(...args); }
 }
 
-/**
- * BDI loop
-**/
-function agentLoop() {
-    //console.log("Current Config: ", CONFIG);
-    /**
-     * Options
-    **/
-    const options = [];
-    for (const parcel of parcels.values()) {
-        // TODO: Aggiungere controllo distanza e tempo (se la parcel muore prima che io arrivi, non ha senso andare a prenderla)
-        if (!parcel.carriedBy) {
-            options.push({desire: 'go_pick_up', args: [parcel]});
-        }
+class IntentionRevisionQueue extends IntentionRevision {
+  async push(predicate) {
+    // Check if already queued
+    if (this.intention_queue.find((i) => i.predicate.join(" ") == predicate.join(" "))) {
+      return; // intention is already queued
     }
-    if (carrying_parcels > 0) {
-        for (const delivery of delivery_tiles) {
-            options.push({desire: 'go_put_down', args: [delivery]});
-        }
-    }
-    /* * Random walk
-    if (options.length == 0) {
-        // Desire to random walk, so one block at a time, to avoid losing track of other parcels
-        let x = me.x + Math.floor(Math.random() * 3) - 1;
-        let y = me.y + Math.floor(Math.random() * 3) - 1;
-        options.push({desire: 'go_to', args: [{x, y}]});
-    }*/
-
-    /**
-     * Select best intention
-    **/
-    // * Select the nearest parcel that has desire go_pick_up
-    let must_deliver = (carrying_parcels >= CONFIG.PARCELS_MAX); // ? Se ho più di un pacco devo per forza consegnare [ Temporaneo per testing ]
-    let nothing_to_deliver = (carrying_parcels == 0);
-    if (must_deliver && nothing_to_deliver) { console.log("PARCELS_MAX Cannot Be Set To 0 !!!"); return; }
-    let best_option;
-    let nearest_parcel = Number.MAX_VALUE;
-    for (const option of options) {
-        if (must_deliver && option.desire == 'go_pick_up') { continue; }
-        if (nothing_to_deliver && option.desire == 'go_put_down') { continue; }
-        let current_d = distance(option.args[0], me);
-        if (current_d < nearest_parcel) {
-            best_option = option;
-            nearest_parcel = current_d;
-        }
-    }
-    /**
-     * Revise/queue intention 
-     */
-    // * Queue the best intention for now with no revision in particular...
-    console.log("Executing: ", best_option);
-    if(best_option) { myAgent.queue(best_option.desire, ...best_option.args); }
-}
-client.onParcelsSensing(agentLoop);
-// client.onAgentsSensing(agentLoop);
-// client.onYou(agentLoop);
-
-/**
- * Intention revision / execution loop
-**/
-class Agent {
-    intention_queue = new Array();
-    async intentionLoop() {
-        while (true) {
-            const intention = this.intention_queue.shift();
-            if (intention) { await intention.achieve(); }
-            await new Promise(res => setImmediate(res));
-        }
-    }
-    async queue(desire, ...args) {
-        // const last = this.intention_queue.at(this.intention_queue.length - 1);
-        const current = new Intention(desire, ...args);
-        this.intention_queue.push(current);
-    }
-    async stop() {
-        //console.log('stop agent queued intentions');
-        for (const intention of this.intention_queue) { intention.stop(); }
-    }
+    console.log("IntentionRevisionReplace.push", predicate);
+    const intention = new Intention(this, predicate);
+    this.intention_queue.push(intention);
+  }
 }
 
-const myAgent = new Agent();
-myAgent.intentionLoop();
-
-// client.onYou( () => myAgent.queue( 'go_to', {x:11, y:6} ) )
-
-// client.onParcelsSensing( parcels => {
-//     for (const {x, y, carriedBy} of parcels) {
-//         if ( ! carriedBy )
-//             myAgent.queue( 'go_pick_up', {x, y} );
-//     }
-// } )
-
-/**
- * Intention
- */
-class Intention extends Promise {
-    #current_plan;
-    stop() {
-        //console.log('stop intention and current plan');
-        this.#current_plan.stop();
+class IntentionRevisionReplace extends IntentionRevision {
+  async push(predicate) {
+    // Check if already queued
+    const last = this.intention_queue.at(this.intention_queue.length - 1);
+    if (last && last.predicate.join(" ") == predicate.join(" ")) {
+      return; // intention is already being achieved
     }
-    #desire;
-    #args;
-
-    #resolve;
-    #reject;
-    constructor(desire, ...args) {
-        var resolve, reject;
-        super(async (res, rej) => { resolve = res; reject = rej; });
-        this.#resolve = resolve
-        this.#reject = reject
-        this.#desire = desire;
-        this.#args = args;
-    }
-
-    #started = false;
-    async achieve() {
-        if (this.#started) { return this; }
-        else { this.#started = true; }
-
-        for (const plan of plans) {
-            if (plan.isApplicableTo(this.#desire)) {
-                this.#current_plan = plan;
-                //console.log('achieving desire', this.#desire, ...this.#args, 'with plan', plan);
-                try {
-                    const plan_res = await plan.execute( ...this.#args );
-                    this.#resolve( plan_res );
-                    //console.log('plan', plan, 'succesfully achieved intention', this.#desire, ...this.#args, 'with result', plan_res);
-                    return plan_res;
-                } catch (error) {
-                    //console.log('plan', plan, 'failed while trying to achieve intention', this.#desire, ...this.#args, 'with error', error);
-                    console.log("Plan Failed: ", error);
-                }
-            }
-        }
-        this.#reject();
-        //console.log('no plan satisfied the desire ', this.#desire, ...this.#args);
-        throw 'no plan satisfied the desire ' + this.#desire;
-    }
+    console.log("IntentionRevisionReplace.push", predicate);
+    const intention = new Intention(this, predicate);
+    this.intention_queue.push(intention);
+    // Force current intention stop
+    if (last) { last.stop(); }
+  }
 }
 
-/**
- * Plan library
- */
-const plans = [];
+class IntentionRevisionRevise extends IntentionRevision {
+  async push(predicate) {
+    console.log("Revising intention queue. Received", ...predicate);
+    // TODO
+    // - order intentions based on utility function (reward - cost) (for example, parcel score minus distance)
+    // - eventually stop current one
+    // - evaluate validity of intention
+  }
+}
 
+// * Start intention revision loop
+// const myAgent = new IntentionRevisionQueue();
+const myAgent = new IntentionRevisionReplace();
+// const myAgent = new IntentionRevisionRevise();
+myAgent.loop();
+
+// * Intention
+class Intention {
+  // Plan currently used for achieving the intention
+  #current_plan;
+  // This is used to stop the intention
+  #stopped = false;
+  get stopped() { return this.#stopped; }
+  stop() {
+    // this.log( 'stop intention', ...this.#predicate );
+    this.#stopped = true;
+    if (this.#current_plan) { this.#current_plan.stop(); }
+  }
+  // * #parent refers to caller
+  #parent;
+  // * predicate is in the form ['go_to', x, y]
+  get predicate() { return this.#predicate; }
+  #predicate;
+  constructor(parent, predicate) {
+    this.#parent = parent;
+    this.#predicate = predicate;
+  }
+  log(...args) {
+    if (this.#parent && this.#parent.log) { this.#parent.log("\t", ...args); }
+    else { console.log(...args); }
+  }
+  #started = false;
+  // * Using the plan library to achieve an intention
+  async achieve() {
+    // Cannot start twice
+    if (this.#started) { return this; }
+    else { this.#started = true; }
+
+    // Trying all plans in the library
+    for (const planClass of planLibrary) {
+      // if stopped then quit
+      if (this.stopped) { throw ["stopped intention", ...this.predicate]; }
+
+      // if plan is 'statically' applicable
+      if (planClass.isApplicableTo(...this.predicate)) {
+        // plan is instantiated
+        this.#current_plan = new planClass(this.parent);
+        this.log("achieving intention", ...this.predicate, "with plan", planClass.name);
+        // and plan is executed and result returned
+        try {
+          const plan_res = await this.#current_plan.execute(...this.predicate);
+          this.log("succesful intention", ...this.predicate, "with plan", planClass.name, "with result:", plan_res);
+          return plan_res;
+          // or errors are caught so to continue with next plan
+        } catch (error) { this.log("failed intention", ...this.predicate, "with plan", planClass.name, "with error:", error); }
+      }
+    }
+
+    // if stopped then quit
+    if (this.stopped) { throw ["stopped intention", ...this.predicate]; }
+
+    // no plans have been found to satisfy the intention
+    // this.log( 'no plan satisfied the intention ', ...this.predicate );
+    throw ["no plan satisfied the intention ", ...this.predicate];
+  }
+}
+
+// * Plan library
+const planLibrary = [];
 class Plan {
-    stop() {
-        //console.log('stop plan and all sub intentions');
-        for (const i of this.#sub_intentions ) { i.stop(); }
-    }
-
-    #sub_intentions = [];
-    async subIntention(desire, ...args) {
-        const sub_intention = new Intention(desire, ...args);
-        this.#sub_intentions.push(sub_intention);
-        return await sub_intention.achieve();
-    }
-
+  #stopped = false;
+  stop() {
+    this.#stopped = true;
+    for (const i of this.#sub_intentions) { i.stop(); }
+  }
+  get stopped() { return this.#stopped; }
+  // * #parent refers to caller
+  #parent;
+  constructor(parent) { this.#parent = parent; }
+  log(...args) {
+    if (this.#parent && this.#parent.log) { this.#parent.log("\t", ...args); }
+    else { console.log(...args); }
+  }
+  // this is an array of sub intention. Multiple ones could eventually being achieved in parallel.
+  #sub_intentions = [];
+  async subIntention(predicate) {
+    const sub_intention = new Intention(this, predicate);
+    this.#sub_intentions.push(sub_intention);
+    return await sub_intention.achieve();
+  }
 }
 
 class GoPickUp extends Plan {
-    isApplicableTo(desire) { return desire == 'go_pick_up'; }
-
-    async execute({x, y}) {
-        await this.subIntention('go_to', {x, y});
-        await client.pickup().then(() => { carrying_parcels += 1; });
-    }
+  static isApplicableTo(go_pick_up, x, y, id) { return go_pick_up == "go_pick_up"; }
+  async execute(go_pick_up, x, y) {
+    if (this.stopped) throw ["stopped"]; // if stopped then quit
+    await this.subIntention(["go_to", x, y]);
+    if (this.stopped) throw ["stopped"]; // if stopped then quit
+    let res = await client.pickup();
+    if (this.stopped) throw ["stopped"]; // if stopped then quit
+    carrying_parcels = res.length;
+    return true;
+  }
 }
 
 class GoPutDown extends Plan {
-    isApplicableTo(desire) { return desire == 'go_put_down'; }
-
-    async execute({x, y}) {
-        await this.subIntention('go_to', {x, y});
-        await client.putdown().then(() => { carrying_parcels = 0; });
-    }
+  static isApplicableTo(go_put_down, x, y, id) { return go_put_down == "go_put_down"; }
+  async execute(go_put_down, x, y) {
+    if (this.stopped) throw ["stopped"]; // if stopped then quit
+    await this.subIntention(["go_to", x, y]);
+    if (this.stopped) throw ["stopped"]; // if stopped then quit
+    await client.putdown();
+    if (this.stopped) throw ["stopped"]; // if stopped then quit
+    carrying_parcels = 0;
+    return true;
+  }
 }
 
 class BlindMove extends Plan {
-    isApplicableTo(desire) { return desire == 'go_to'; }
-
-    async execute ({x, y}) {
-        while(me.x != x || me.y != y) {
-            let status_x = undefined;
-            let status_y = undefined;
-            if (x > me.x) { status_x = await client.move('right'); }
-            else if (x < me.x) { status_x = await client.move('left'); }
-            if (status_x) { me.x = status_x.x; me.y = status_x.y; }
-
-            if (y > me.y) { status_y = await client.move('up'); }
-            else if (y < me.y) { status_y = await client.move('down'); }
-            if (status_y) { me.x = status_y.x; me.y = status_y.y; }
-
-            if (!status_x && !status_y) { break; }
-            else if (me.x == x && me.y == y) { break; }
-        }
+  static isApplicableTo(go_to, x, y) { return go_to == "go_to"; }
+  async execute(go_to, x, y) {
+    while (me.x != x || me.y != y) {
+      let res = await this.towards(x, y);
+      if (!res) {
+        this.log("stucked");
+        throw "stucked";
+      }
     }
+    return true;
+  }
+  async towards(x, y) {
+    let status_x = false;
+    let status_y = false;
+    if (this.stopped) { throw ["stopped"]; } // if stopped then quit
+    status_x = await client.move(x > me.x ? "right" : "left");
+    if (status_x) { me.x = status_x.x; me.y = status_x.y; }
+  
+    if (this.stopped) { throw ["stopped"]; } // if stopped then quit
+    status_y = await client.move(y > me.y ? "up" : "down");
+    if (status_y) { me.x = status_y.x; me.y = status_y.y; }
+    return status_x || status_y;
+  }
 }
 
-plans.push(new GoPickUp());
-plans.push(new GoPutDown());
-plans.push(new BlindMove());
+
+// plan classes are added to plan library
+planLibrary.push(GoPickUp);
+planLibrary.push(GoPutDown);
+planLibrary.push(BlindMove);
