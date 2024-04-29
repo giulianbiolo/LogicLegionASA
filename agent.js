@@ -1,9 +1,12 @@
 import { DeliverooApi } from "@unitn-asa/deliveroo-js-client";
+import { Grid, Astar } from "fast-astar";
+
 
 const client = new DeliverooApi(
   "http://localhost:8080",
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjMwZTU2ZDYwN2MyIiwibmFtZSI6InRlc3QxIiwiaWF0IjoxNzEzNzg5NDI1fQ.hovsONlTbtjfcf3LiGcOZ9YlCNVD93XC7WPtC3AdkAE"
 );
+const MAP_SIZE = 100;
 
 function distance({ x: x1, y: y1 }, { x: x2, y: y2 }) {
   const dx = Math.abs(Math.round(x1) - Math.round(x2));
@@ -25,7 +28,11 @@ client.onYou(({ id, name, x, y, score }) => {
  */
 const parcels = new Map();
 var carrying_parcels = 0;
-var map_tiles = [];
+var grid = new Grid({
+  col: MAP_SIZE,
+  row: MAP_SIZE,
+});
+var astar = new Astar(grid);
 var delivery_tiles = [];
 const CONFIG = {};
 client.onConfig((config) => {
@@ -35,6 +42,13 @@ client.onConfig((config) => {
   CONFIG.AGENTS_OBSERVATION_DISTANCE = config["AGENTS_OBSERVATION_DISTANCE"];
   CONFIG.PARCEL_DECADING_INTERVAL = config["PARCEL_DECADING_INTERVAL"];
   CONFIG.CLOCK = config["CLOCK"];
+
+  // * Init matrix of map
+  for (let i = 0; i < MAP_SIZE; i++) {
+    for (let j = 0; j < MAP_SIZE; j++) {
+      grid.set([i, j], "value", 1);
+    }
+  }
 });
 client.onParcelsSensing(async (perceived_parcels) => {
   for (const p of perceived_parcels) {
@@ -42,9 +56,8 @@ client.onParcelsSensing(async (perceived_parcels) => {
   }
 });
 client.onTile((x, y, delivery) => {
-  map_tiles.push({ x, y });
-  if (!delivery) { return; }
-  delivery_tiles.push({ x, y });
+  grid.set([x, y], "value", 0);
+  if (delivery) { delivery_tiles.push({ x, y }); }
 });
 
 // * Options generation and filtering function
@@ -271,6 +284,21 @@ class BlindMove extends Plan {
   static isApplicableTo(go_to, x, y) { return go_to == "go_to"; }
   async execute(go_to, x, y) {
     while (me.x != x || me.y != y) {
+      // ? If we know the map wll enough we can try to execute the A* algorithm to find the optimal path
+      // ? Else we will just fallback to the simple blind move method which executes a single blind step at a time before checking again the A* algorithm
+      let path = astar.search([me.x, me.y], [x, y], { rightAngle: true, optimalResult: true, });
+      if (path && path.length > 0) {
+        // * We found the optimal solution! We can follow it!
+        this.log("Found the optimal solution!, From: { x: ", me.x, ", y: ", me.y, " }, ", "Path: ", path);
+        for (let i = 0; i < path.length; i++) {
+          let [nx, ny] = path[i];
+          let res = await this.towards(nx, ny);
+          if (!res) {
+            this.log("stucked");
+            throw "stucked";
+          }
+        }
+      } else { this.log("No optimal solution found, falling back to blind move method"); }
       let res = await this.towards(x, y);
       if (!res) {
         this.log("stucked");
