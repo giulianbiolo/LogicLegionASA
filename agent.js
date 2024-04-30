@@ -1,12 +1,11 @@
 import { DeliverooApi } from "@unitn-asa/deliveroo-js-client";
-import { Grid, Astar } from "fast-astar";
-
+import ApathFind from "a-star-pathfind";
 
 const client = new DeliverooApi(
   "http://localhost:8080",
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjMwZTU2ZDYwN2MyIiwibmFtZSI6InRlc3QxIiwiaWF0IjoxNzEzNzg5NDI1fQ.hovsONlTbtjfcf3LiGcOZ9YlCNVD93XC7WPtC3AdkAE"
 );
-const MAP_SIZE = 100;
+const MAP_SIZE = 10;
 
 function distance({ x: x1, y: y1 }, { x: x2, y: y2 }) {
   const dx = Math.abs(Math.round(x1) - Math.round(x2));
@@ -28,12 +27,14 @@ client.onYou(({ id, name, x, y, score }) => {
  */
 const parcels = new Map();
 var carrying_parcels = 0;
-var grid = new Grid({
-  col: MAP_SIZE,
-  row: MAP_SIZE,
-});
-var astar = new Astar(grid);
+var pathFind = new ApathFind.default();
+var tiles = [];
+
 var delivery_tiles = [];
+/**
+ * @type {Map<id,{id, name, x, y, score}>}
+ */
+var other_agents = new Map();
 const CONFIG = {};
 client.onConfig((config) => {
   CONFIG.PARCELS_MAX = config["PARCELS_MAX"];
@@ -45,10 +46,12 @@ client.onConfig((config) => {
 
   // * Init matrix of map
   for (let i = 0; i < MAP_SIZE; i++) {
+    tiles[i] = [];
     for (let j = 0; j < MAP_SIZE; j++) {
-      grid.set([i, j], "value", 1);
+      tiles[i][j] = 0;
     }
   }
+  pathFind.init(tiles, { allowDiagonal: false, });
 });
 client.onParcelsSensing(async (perceived_parcels) => {
   for (const p of perceived_parcels) {
@@ -56,7 +59,7 @@ client.onParcelsSensing(async (perceived_parcels) => {
   }
 });
 client.onTile((x, y, delivery) => {
-  grid.set([x, y], "value", 0);
+  pathFind.changeTileValue(x, y, 1);
   if (delivery) { delivery_tiles.push({ x, y }); }
 });
 
@@ -67,6 +70,15 @@ client.onParcelsSensing((parcels) => {
   const options = [];
   for (const parcel of parcels.values()) { if (!parcel.carriedBy) { options.push(["go_pick_up", parcel.x, parcel.y, parcel.id]); } }
   if (carrying_parcels > 0) { for (const delivery of delivery_tiles) { options.push(["go_put_down", delivery.x, delivery.y, null]); } }
+  if (options.length == 0) {
+    // * Consider random walk to a tile in the map that is reachable
+    let x, y = 0;
+    do {
+      x = Math.floor(Math.random() * MAP_SIZE);
+      y = Math.floor(Math.random() * MAP_SIZE);
+    } while (pathFind.tiles[y][x].val == 0);
+    options.push(["go_to", x, y]);
+  }
   // * Options filtering
   let must_deliver = carrying_parcels >= CONFIG.PARCELS_MAX; // ? Se ho più di un pacco devo per forza consegnare [ Temporaneo per testing ]
   let nothing_to_deliver = carrying_parcels == 0;
@@ -86,8 +98,20 @@ client.onParcelsSensing((parcels) => {
   // * Best option is selected
   if (best_option) { myAgent.push(best_option); }
 });
-// client.onAgentsSensing( agentLoop )
-// client.onYou( agentLoop )
+client.onAgentsSensing((agents) => {
+  // TODO: Make it more intelligent, remove the old belief only if disproven by sensing an empty tile or moved agent, don't always clear all the beliefs
+  // * Now let's update the grid beliefset by replacement!
+  // ? Clear all of our old beliefs!
+  other_agents.forEach((agent, id) => {
+    pathFind.changeTileValue(Math.round(agent.x), Math.round(agent.y), 1);
+  });
+  other_agents.clear();
+  // ? Add new beliefs!
+  for (const agent of agents) { other_agents.set(agent.id, agent); }
+  other_agents.forEach((agent, id) => {
+    pathFind.changeTileValue(Math.round(agent.x), Math.round(agent.y), 0);
+  });
+});
 
 // * Intention revision loop
 class IntentionRevision {
@@ -283,42 +307,85 @@ class GoPutDown extends Plan {
 class BlindMove extends Plan {
   static isApplicableTo(go_to, x, y) { return go_to == "go_to"; }
   async execute(go_to, x, y) {
-    while (me.x != x || me.y != y) {
-      // ? If we know the map wll enough we can try to execute the A* algorithm to find the optimal path
-      // ? Else we will just fallback to the simple blind move method which executes a single blind step at a time before checking again the A* algorithm
-      let path = astar.search([me.x, me.y], [x, y], { rightAngle: true, optimalResult: true, });
-      if (path && path.length > 0) {
-        // * We found the optimal solution! We can follow it!
-        this.log("Found the optimal solution!, From: { x: ", me.x, ", y: ", me.y, " }, ", "Path: ", path);
-        for (let i = 0; i < path.length; i++) {
-          let [nx, ny] = path[i];
-          let res = await this.towards(nx, ny);
-          if (!res) {
-            this.log("stucked");
-            throw "stucked";
-          }
-        }
-      } else { this.log("No optimal solution found, falling back to blind move method"); }
-      let res = await this.towards(x, y);
-      if (!res) {
-        this.log("stucked");
-        throw "stucked";
-      }
-    }
+    await this.astars(x, y);
     return true;
   }
+
+  async astars(x, y) {
+    // ? Base Case Must Be Checked
+    if (distance({ x: me.x, y: me.y }, { x, y }) == 0) { return true; }
+    if (distance({ x: me.x, y: me.y }, { x, y }) == 1) {
+      let res = await this.towards(x, y);
+      if (!res) {
+        console.log("Stucked at the end, can't touch the objective block!");
+        throw "stucked";
+      }
+      return true;
+    }
+    this.log("Now searching for a solution in Me: { x: ", me.x, ", y: ", me.y, " }, To: { x: ", x, ", y: ", y, "}");
+    let path = pathFind.findPath(me.x, me.y, x, y);
+    // maplog(me, x, y, path);
+    if (path && path.length > 0) {
+      // * We found the solution! We can follow it!
+      this.log("Found the solution!, From: { x: ", me.x, ", y: ", me.y, " }, To: { x: ", x, ", y: ", y, "}, Path: ", path);
+      for (let i = 0; i < path.length; i++) {
+        let [nx, ny] = [path[i].x, path[i].y];
+        if (nx == me.x && ny == me.y) { continue; }
+        let res = await this.towards(nx, ny);
+        if (!res) {
+          // ? Recalculate the road!
+          this.log("Currently stuck, recalculating the road!");
+          await this.astars(x, y);
+          return true;
+        }
+      }
+      return true;
+    } else {
+      // * Log the grid also
+      maplog(me, x, y, path);
+      this.log("No solution found, Me: { x: ", me.x, ", y: ", me.y, " }, To: { x: ", x, ", y: ", y, "}, Path: ", path);
+      this.log("stucked");
+      throw "stucked";
+    }
+  }
+
   async towards(x, y) {
     let status_x = false;
     let status_y = false;
     if (this.stopped) { throw ["stopped"]; } // if stopped then quit
-    status_x = await client.move(x > me.x ? "right" : "left");
-    if (status_x) { me.x = status_x.x; me.y = status_x.y; }
-  
+    if (x > me.x) { status_x = await client.move("right"); }
+    else if (x < me.x) { status_x = await client.move("left"); }
+    if (status_x) {
+      if (me.y != status_x.y) { console.log("ERROR IN X MOVEMENT"); return; }
+      me.x = status_x.x;
+      me.y = status_x.y;
+    }
     if (this.stopped) { throw ["stopped"]; } // if stopped then quit
-    status_y = await client.move(y > me.y ? "up" : "down");
-    if (status_y) { me.x = status_y.x; me.y = status_y.y; }
+    if (y > me.y) { status_y = await client.move("up"); }
+    else if (y < me.y) { status_y = await client.move("down"); }
+    if (status_y) {
+      if (me.x != status_y.x) { console.log("ERROR IN Y MOVEMENT"); return; }
+      me.x = status_y.x;
+      me.y = status_y.y;
+    }
     return status_x || status_y;
   }
+}
+
+function maplog(me, x, y, path) {
+  for (let i = MAP_SIZE - 1; i > 0; i--) {
+    let row = "";
+    for (let j = 0; j < MAP_SIZE; j++) {
+      // COLOR ME.XY in green
+      if (pathFind.tiles[i][j].val == 1) { row += "\x1b[44m"; }
+      if (path.find((t) => { return t.y == i && t.x == j; })) { row += "\x1b[45m"; }
+      if (i == me.y && j == me.x) { row += "\x1b[42m"; }
+      if (i == y && j == x) { row += "\x1b[41m"; }
+      row += pathFind.tiles[i][j].val + "\x1b[0m ";
+    }
+    console.log(row);
+  }
+  console.log();
 }
 
 
