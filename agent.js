@@ -6,6 +6,7 @@ const client = new DeliverooApi(
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjMwZTU2ZDYwN2MyIiwibmFtZSI6InRlc3QxIiwiaWF0IjoxNzEzNzg5NDI1fQ.hovsONlTbtjfcf3LiGcOZ9YlCNVD93XC7WPtC3AdkAE"
 );
 const MAP_SIZE = 100;
+var start_time = new Date().getTime() / 1000;
 
 function distance({ x: x1, y: y1 }, { x: x2, y: y2 }) {
   const dx = Math.abs(Math.round(x1) - Math.round(x2));
@@ -15,6 +16,8 @@ function distance({ x: x1, y: y1 }, { x: x2, y: y2 }) {
 
 function real_profit(parcel, carrying_parcels) {
   // * This method computes the expected profit achievable by going to pick up a parcel, instead of moving to a delivery tile
+  // ? If parcel decaying time is infinite then the real profit is the reward of the parcel
+  if (CONFIG.PARCEL_DECADING_INTERVAL >= 999999) { return parcel.reward; }
   let parcel_reward = parcel.reward;
   let distance_to_parcel = distance({ x: parcel.x, y: parcel.y }, me);
   let distance_to_closest_delivery_tile_from_parcel = Number.MAX_VALUE;
@@ -52,11 +55,12 @@ client.onYou(({ id, name, x, y, score }) => {
 const parcels = new Map();
 var carrying_parcels = 0;
 var pathFind = new ApathFind.default();
+var pathFindInit = false;
 var tiles = [];
 
 var delivery_tiles = [];
 /**
- * @type {Map<id,{id, name, x, y, score}>}
+ * @type {Map<id,{id, name, x, y, score, lastUpdate}>}
  */
 var other_agents = new Map();
 const CONFIG = {};
@@ -65,7 +69,15 @@ client.onConfig((config) => {
   CONFIG.MOVEMENT_STEPS = Number(config["MOVEMENT_STEPS"]);
   CONFIG.MOVEMENT_DURATION = Number(config["MOVEMENT_DURATION"]);
   CONFIG.AGENTS_OBSERVATION_DISTANCE = Number(config["AGENTS_OBSERVATION_DISTANCE"]);
-  CONFIG.PARCEL_DECADING_INTERVAL = Number(config["PARCEL_DECADING_INTERVAL"].replace("s", ""));
+  if (config["PARCEL_DECADING_INTERVAL"].includes("infinite")) {
+    CONFIG.PARCEL_DECADING_INTERVAL = Number.MAX_VALUE;
+  } else if (config["PARCEL_DECADING_INTERVAL"].includes("s")) {
+    CONFIG.PARCEL_DECADING_INTERVAL = Number(config["PARCEL_DECADING_INTERVAL"].replace("s", ""));
+  } else if (config["PARCEL_DECADING_INTERVAL"].includes("m")) {
+    CONFIG.PARCEL_DECADING_INTERVAL = Number(config["PARCEL_DECADING_INTERVAL"].replace("m", "")) * 60;
+  } else if (config["PARCEL_DECADING_INTERVAL"].includes("h")) {
+    CONFIG.PARCEL_DECADING_INTERVAL = Number(config["PARCEL_DECADING_INTERVAL"].replace("h", "")) * 60 * 60;
+  }
   CONFIG.CLOCK = Number(config["CLOCK"]);
   console.log("CONFIG", CONFIG);
 
@@ -77,24 +89,72 @@ client.onConfig((config) => {
     }
   }
   pathFind.init(tiles, { allowDiagonal: false, });
+  pathFindInit = true;
 });
 client.onParcelsSensing(async (perceived_parcels) => {
-  for (const p of perceived_parcels) {
-    parcels.set(p.id, p);
+  console.log("Parcel Sensing Event at time", new Date().getTime() / 1000 - start_time, "with parcels", parcels);
+  for (const p of perceived_parcels) { parcels.set(p.id, p); }
+  for (const [id, p] of parcels) {
+    if (!perceived_parcels.find((pp) => pp.id == id)) { parcels.delete(id); }
+    if (p.reward <= 2 && CONFIG.PARCEL_DECADING_INTERVAL <= 99999) { parcels.delete(id); }
   }
+  generateOptions();
 });
 client.onTile((x, y, delivery) => {
+  console.log("Tile Event at time", new Date().getTime() / 1000 - start_time, "with x", x, "y", y, "delivery", delivery);
   pathFind.changeTileValue(x, y, 1);
   if (delivery) { delivery_tiles.push({ x, y }); }
 });
+client.onAgentsSensing((agents) => {
+  console.log("Agent Sensing Event at time", new Date().getTime() / 1000 - start_time, "with parcels", parcels);
+  // * Now let's update the grid beliefset by replacement!
+  // * Now let's update the grid beliefset by revision!
+  let timenow = new Date().getTime() / 1000;
+  for (const ag of agents) {
+    let agent = {
+      id: ag.id,
+      x: ag.x,
+      y: ag.y,
+      score: ag.score,
+      lastUpdate: timenow,
+    };
+    if (agent.id == me.id) { continue; }
+    if (agent.x == null || agent.y == null) { continue; }
+    if (agent.x < 0 || agent.y < 0) { continue; }
+    if (agent.x >= MAP_SIZE || agent.y >= MAP_SIZE) { continue; }
+    // check if this agent is contained in the other_agents array, if so then remove it from the old position
+    if (other_agents.has(agent.id)) {
+      let old_agent = other_agents.get(agent.id);
+      pathFind.changeTileValue(Math.round(old_agent.x), Math.round(old_agent.y), 1);
+    }
+    other_agents.set(agent.id, agent);
+    pathFind.changeTileValue(Math.round(agent.x), Math.round(agent.y), 0);
+  }
+  // ? Also update all agents with older timestamp of 3 seconds by removing them from the grid
+  for (const [id, agent] of other_agents) {
+    if (agent.lastUpdate < timenow - 3) {
+      pathFind.changeTileValue(Math.round(agent.x), Math.round(agent.y), 1);
+      other_agents.delete(id);
+    }
+  }
+  // * Now let's generate new options
+  generateOptions();
+});
 
-// * Options generation and filtering function
-client.onParcelsSensing((parcels) => {
-  // TODO revisit beliefset revision so to trigger option generation only in the case a new parcel is observed
+function generateOptions() {
   // * Options generation
   const options = [];
-  for (const parcel of parcels.values()) { if (!parcel.carriedBy) { options.push(["go_pick_up", parcel.x, parcel.y, parcel.id, parcel.reward]); } }
-  if (carrying_parcels > 0) { for (const delivery of delivery_tiles) { options.push(["go_put_down", delivery.x, delivery.y, null, null]); } }
+  for (const parcel of parcels.values()) {
+    if (!parcel.carriedBy) {
+      options.push(["go_pick_up", parcel.x, parcel.y, parcel.id, parcel.reward]);
+    }
+  }
+  if (carrying_parcels > 0) {
+    for (const delivery of delivery_tiles) {
+      if (anyAgentOnTile(delivery)) { continue; }
+      options.push(["go_put_down", delivery.x, delivery.y, null, null]);
+    }
+  }
   if (options.length == 0) {
     // * Consider random walk to a tile in the map that is reachable
     let x, y = 0;
@@ -116,7 +176,7 @@ client.onParcelsSensing((parcels) => {
     let [go_pick_up, x, y, id, reward] = option;
     let current_d = distance({ x, y }, me);
     // ? Take into account only valuable options
-    if (go_pick_up == "go_pick_up") {
+    if (go_pick_up == "go_pick_up" && CONFIG.PARCEL_DECADING_INTERVAL < 999999) {
       let profit = real_profit({ x: x, y: y, reward: reward }, carrying_parcels);
       if (profit < 0) { continue; }
     }
@@ -126,22 +186,24 @@ client.onParcelsSensing((parcels) => {
     }
   }
   // * Best option is selected
+  console.log("Pushing new option to the agent", best_option);
+  // ? Let us add a new intention to the agent. If the current best is go_pick_up, and in the options there is a go_put_down, then let's push also that
   if (best_option) { myAgent.push(best_option); }
-});
-client.onAgentsSensing((agents) => {
-  // TODO: Make it more intelligent, remove the old belief only if disproven by sensing an empty tile or moved agent, don't always clear all the beliefs
-  // * Now let's update the grid beliefset by replacement!
-  // ? Clear all of our old beliefs!
-  other_agents.forEach((agent, id) => {
-    pathFind.changeTileValue(Math.round(agent.x), Math.round(agent.y), 1);
-  });
-  other_agents.clear();
-  // ? Add new beliefs!
-  for (const agent of agents) { other_agents.set(agent.id, agent); }
-  other_agents.forEach((agent, id) => {
-    pathFind.changeTileValue(Math.round(agent.x), Math.round(agent.y), 0);
-  });
-});
+  if (best_option && best_option[0] == "go_pick_up") {
+    // Let's check if there is a go_put_down in the options
+    let go_put_down = options.find((o) => o[0] == "go_put_down");
+    if (go_put_down) {
+      myAgent.push(go_put_down);
+    }
+  }
+}
+
+function anyAgentOnTile({ x, y }) {
+  for (const agent of other_agents.values()) {
+    if (Math.round(agent.x) == x && Math.round(agent.y) == y) { return true; }
+  }
+  return false;
+}
 
 // * Intention revision loop
 class IntentionRevision {
@@ -151,16 +213,24 @@ class IntentionRevision {
   async loop() {
     while (true) {
       // Consumes intention_queue if not empty
+      console.log("intentionRevision.loop queue: ", this.intention_queue.map((i) => i.predicate));
       if (this.intention_queue.length > 0) {
         console.log("intentionRevision.loop", this.intention_queue.map((i) => i.predicate));
         // Current intention
         const intention = this.intention_queue[0];
         // Is queued intention still valid? Do I still want to achieve it?
-        // TODO this hard-coded implementation is an example
-        let id = intention.predicate[2];
-        let p = parcels.get(id);
-        if (p && p.carriedBy) {
-          console.log("Skipping intention because no more valid", intention.predicate);
+        // TODO: Add other checks and cases
+        if (intention.predicate[0] == "go_pick_up") {
+          let p = parcels.get(intention.predicate[3]);
+          if (p && p.carriedBy) {
+            console.log("Skipping intention because no more valid, parcel carriedBy other agent", intention.predicate);
+            this.intention_queue.shift();
+            continue;
+          }
+        }
+        if (intention.predicate[0] == "go_put_down" && anyAgentOnTile({ x: intention.predicate[1], y: intention.predicate[2] })) {
+          console.log("Skipping intention because no more valid, other agent on delivery tile", intention.predicate);
+          this.intention_queue.shift();
           continue;
         }
         // Start achieving intention
@@ -170,8 +240,10 @@ class IntentionRevision {
           .catch((error) => { console.log('Failed intention', ...intention.predicate, 'with error:', error) });
         // Remove from the queue
         this.intention_queue.shift();
+        // Postpone next iteration at setImmediate
+      } else {
+        if (pathFindInit) { generateOptions(); }
       }
-      // Postpone next iteration at setImmediate
       await new Promise((res) => setImmediate(res));
     }
   }
@@ -214,11 +286,25 @@ class IntentionRevisionRevise extends IntentionRevision {
     // - eventually stop current one
     // - evaluate validity of intention
     const last = this.intention_queue.at(this.intention_queue.length - 1);
-    if (last && last.predicate.join(" ") == predicate.join(" ")) { return; } // ? If the same intention is already being achieved, then skip
-    if (last && last.predicate[0] == "rnd_walk_to" && predicate[0] == "rnd_walk_to") { return; } // ? If already random walking, don't need to revise it with a new random walk
-
+    // * If the queue is empty, then just push the intention
+    if (!last) {
+      const intention = new Intention(this, predicate);
+      this.intention_queue.push(intention);
+      return;
+    }
+    if (last.predicate.join(" ") == predicate.join(" ")) { return; } // ? If the same intention is already being achieved, then skip
+    if (last.predicate[0] == "rnd_walk_to" && predicate[0] == "rnd_walk_to") { return; } // ? If already random walking, don't need to revise it with a new random walk
+    if (last.predicate[0] != "rnd_walk_to" && predicate[0] == "rnd_walk_to") { return; }
+    if (last.predicate[0] == "rnd_walk_to" && predicate[0] != "rnd_walk_to") {
+      console.log("Revising intention queue. Replacing", last.predicate, "with", predicate);
+      const intention = new Intention(this, predicate);
+      this.intention_queue.push(intention);
+      last.stop();
+      return;
+    }
     // * If I'm delivering a parcel, and the intention of delivering it arises, then select by distance.
-    if (last && (last.predicate[0] == "go_put_down" && predicate[0] == "go_put_down")) {
+    // * Also if the parcels don't decay, just select by distance
+    if ((last.predicate[0] == "go_put_down" && predicate[0] == "go_put_down") || CONFIG.PARCEL_DECADING_INTERVAL >= 999999) {
       let [go_put_down, x, y, id] = predicate;
       let current_d = distance({ x, y }, me);
       let last_d = distance({ x: last.predicate[1], y: last.predicate[2] }, me);
@@ -230,12 +316,27 @@ class IntentionRevisionRevise extends IntentionRevision {
       } else { return; }
     }
     // TODO: If I'm picking up a parcel, and the intention of picking up a new parcel arises, then maximize the reward! [Calc distance and score]
+    // ? Calculate the real_profit of both and compare them
+    if ((last.predicate[0] == "go_pick_up" && predicate[0] == "go_pick_up")) {
+      let [go_pick_up, x, y, id, reward] = predicate;
+      let profit = real_profit({ x: x, y: y, reward: reward }, carrying_parcels);
+      let last_profit = real_profit({ x: last.predicate[1], y: last.predicate[2], reward: last.predicate[4] }, carrying_parcels);
+      if (profit > last_profit) {
+        console.log("Revising intention queue. Replacing", last.predicate, "with", predicate);
+        const intention = new Intention(this, predicate);
+        this.intention_queue.push(intention);
+        if (last) { last.stop(); }
+      } else { return; }
+    }
+
     // TODO: If I'm delivering a parcel, and the intention of picking up a new parcel arises, then maximize the reward! [Calc distance and score]
+    // ? Calculate the real_profit of both and compare them
+
     // TODO: If I'm picking up a parcel, and the intention of delivering it arises, then maximize the reward! [Calc distance and score]
     // ? BASE CASE: For now we are just replacing the intention
     const intention = new Intention(this, predicate);
     this.intention_queue.push(intention);
-    if (last) { last.stop(); }
+    last.stop();
   }
 }
 
@@ -293,7 +394,14 @@ class Intention {
           this.log("succesful intention", ...this.predicate, "with plan", planClass.name, "with result:", plan_res);
           return plan_res;
           // or errors are caught so to continue with next plan
-        } catch (error) { this.log("failed intention", ...this.predicate, "with plan", planClass.name, "with error:", error); }
+        } catch (error) {
+          this.log("failed intention", ...this.predicate, "with plan", planClass.name, "with error:", error);
+          if (error == "stucked") {
+            // ? If stucked then try the next plan
+            this.log("Found a stucked plan, trying the next one!");
+            continue;
+          }
+        }
       }
     }
 
@@ -301,7 +409,7 @@ class Intention {
     if (this.stopped) { throw ["stopped intention", ...this.predicate]; }
 
     // no plans have been found to satisfy the intention
-    // this.log( 'no plan satisfied the intention ', ...this.predicate );
+    this.log( 'no plan satisfied the intention ', ...this.predicate );
     throw ["no plan satisfied the intention ", ...this.predicate];
   }
 }
@@ -357,16 +465,19 @@ class GoPutDown extends Plan {
   }
 }
 
-class BlindMove extends Plan {
+class AStarMove extends Plan {
   static isApplicableTo(go_to, x, y) { return (go_to == "go_to" || go_to == "rnd_walk_to"); }
   async execute(go_to, x, y) {
+    if (this.stopped) { throw ["stopped"]; }
     await this.astars(x, y);
+    if (this.stopped) { throw ["stopped"]; }
     return true;
   }
 
   async astars(x, y) {
     // ? Base Case Must Be Checked
     if (distance({ x: me.x, y: me.y }, { x, y }) == 0) { return true; }
+    if (this.stopped) { throw ["stopped"]; }
     if (distance({ x: me.x, y: me.y }, { x, y }) == 1) {
       let res = await this.towards(x, y);
       if (!res) {
@@ -375,6 +486,7 @@ class BlindMove extends Plan {
       }
       return true;
     }
+    if (this.stopped) { throw ["stopped"]; }
     this.log("Now searching for a solution in Me: { x: ", me.x, ", y: ", me.y, " }, To: { x: ", x, ", y: ", y, "}");
     let path = pathFind.findPath(me.x, me.y, x, y);
     // maplog(me, x, y, path);
@@ -388,14 +500,18 @@ class BlindMove extends Plan {
         if (!res) {
           // ? Recalculate the road!
           this.log("Currently stuck, recalculating the road!");
+          if (this.stopped) { throw ["stopped"]; }
           await this.astars(x, y);
+          if (this.stopped) { throw ["stopped"]; }
           return true;
         }
       }
+      if (this.stopped) { throw ["stopped"]; }
       return true;
     } else {
       // * Log the grid also
-      maplog(me, x, y, path);
+      // maplog(me, x, y, path);
+      if (this.stopped) { throw ["stopped"]; }
       this.log("No solution found, Me: { x: ", me.x, ", y: ", me.y, " }, To: { x: ", x, ", y: ", y, "}, Path: ", path);
       this.log("stucked");
       throw "stucked";
@@ -421,6 +537,7 @@ class BlindMove extends Plan {
       me.x = status_y.x;
       me.y = status_y.y;
     }
+    if (this.stopped) { throw ["stopped"]; }
     return status_x || status_y;
   }
 }
@@ -445,4 +562,4 @@ function maplog(me, x, y, path) {
 // plan classes are added to plan library
 planLibrary.push(GoPickUp);
 planLibrary.push(GoPutDown);
-planLibrary.push(BlindMove);
+planLibrary.push(AStarMove);
