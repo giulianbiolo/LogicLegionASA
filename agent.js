@@ -2,8 +2,10 @@ import { DeliverooApi } from "@unitn-asa/deliveroo-js-client";
 import ApathFind from "a-star-pathfind";
 
 const client = new DeliverooApi(
-  "http://localhost:8080",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjMwZTU2ZDYwN2MyIiwibmFtZSI6InRlc3QxIiwiaWF0IjoxNzEzNzg5NDI1fQ.hovsONlTbtjfcf3LiGcOZ9YlCNVD93XC7WPtC3AdkAE"
+  "https://deliveroojs.onrender.com/",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjVlZDQzMzA5MDQ4IiwibmFtZSI6InRlc3QxIiwiaWF0IjoxNzE1MDAyMjYxfQ.-sE0WcqUpyNXtR1THLW7WKyO15AHOl1vfJ0M2VRUiz0",
+  //"http://localhost:8080",
+  //"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjMwZTU2ZDYwN2MyIiwibmFtZSI6InRlc3QxIiwiaWF0IjoxNzEzNzg5NDI1fQ.hovsONlTbtjfcf3LiGcOZ9YlCNVD93XC7WPtC3AdkAE"
 );
 const MAP_SIZE = 100;
 var start_time = new Date().getTime() / 1000;
@@ -78,6 +80,7 @@ client.onConfig((config) => {
   } else if (config["PARCEL_DECADING_INTERVAL"].includes("h")) {
     CONFIG.PARCEL_DECADING_INTERVAL = Number(config["PARCEL_DECADING_INTERVAL"].replace("h", "")) * 60 * 60;
   }
+  CONFIG.PARCEL_REWARD_AVG = Number(config["PARCEL_REWARD_AVG"]);
   CONFIG.CLOCK = Number(config["CLOCK"]);
   console.log("CONFIG", CONFIG);
 
@@ -145,9 +148,9 @@ function generateOptions() {
   // * Options generation
   const options = [];
   for (const parcel of parcels.values()) {
-    if (!parcel.carriedBy) {
-      options.push(["go_pick_up", parcel.x, parcel.y, parcel.id, parcel.reward]);
-    }
+    // check if any other agent is on top of that parcel
+    if (anyAgentOnTile({ x: parcel.x, y: parcel.y })) { continue; }
+    if (!parcel.carriedBy) { options.push(["go_pick_up", parcel.x, parcel.y, parcel.id, parcel.reward]); }
   }
   if (carrying_parcels > 0) {
     for (const delivery of delivery_tiles) {
@@ -170,21 +173,23 @@ function generateOptions() {
   if (must_deliver && nothing_to_deliver) { console.log("PARCELS_MAX Cannot Be Set To 0 !!!"); return; }
   let best_option;
   let nearest = Number.MAX_VALUE;
+  // ! Maximize Value / Distance metric
   for (const option of options) {
     if (must_deliver && option[0] == "go_pick_up") { continue; }
     if (nothing_to_deliver && option[0] == "go_put_down") { continue; }
     let [go_pick_up, x, y, id, reward] = option;
     let current_d = distance({ x, y }, me);
-    // ? Take into account only valuable options
-    if (go_pick_up == "go_pick_up" && CONFIG.PARCEL_DECADING_INTERVAL < 999999) {
-      let profit = real_profit({ x: x, y: y, reward: reward }, carrying_parcels);
-      if (profit < 0) { continue; }
-    }
-    if (current_d < nearest) {
+    // ! Value / Distance metric
+    // ? If it's a go_put_down then the distance is just that. in case of go_pick_up do *2
+    let metric = 9999999;
+    if (go_pick_up == "go_pick_up") { metric = (current_d * 2) / reward; }
+    if (go_pick_up == "go_put_down") { metric = current_d / (carrying_parcels * CONFIG.PARCEL_REWARD_AVG); }
+    if (metric < nearest) {
       best_option = option;
-      nearest = current_d;
+      nearest = metric;
     }
   }
+
   // * Best option is selected
   console.log("Pushing new option to the agent", best_option);
   // ? Let us add a new intention to the agent. If the current best is go_pick_up, and in the options there is a go_put_down, then let's push also that
@@ -504,6 +509,19 @@ class AStarMove extends Plan {
           await this.astars(x, y);
           if (this.stopped) { throw ["stopped"]; }
           return true;
+        }
+        // If a parcel is on my tile and I still have space, then pick it up
+        try {
+          let p = undefined;
+          parcels.forEach((parcel) => {
+            if (parcel.x == me.x && parcel.y == me.y) { p = parcel; }
+          });
+          if (p && carrying_parcels < CONFIG.PARCELS_MAX) {
+            await client.pickup();
+            carrying_parcels++;
+          }
+        } catch (error) {
+          console.log("Error in picking up parcel on the road", error, " carrying on...");
         }
       }
       if (this.stopped) { throw ["stopped"]; }
