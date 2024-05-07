@@ -2,13 +2,17 @@ import { DeliverooApi } from "@unitn-asa/deliveroo-js-client";
 import ApathFind from "a-star-pathfind";
 
 const client = new DeliverooApi(
-  "https://deliveroojs.onrender.com/",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjVlZDQzMzA5MDQ4IiwibmFtZSI6InRlc3QxIiwiaWF0IjoxNzE1MDAyMjYxfQ.-sE0WcqUpyNXtR1THLW7WKyO15AHOl1vfJ0M2VRUiz0",
-  //"http://localhost:8080",
-  //"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjMwZTU2ZDYwN2MyIiwibmFtZSI6InRlc3QxIiwiaWF0IjoxNzEzNzg5NDI1fQ.hovsONlTbtjfcf3LiGcOZ9YlCNVD93XC7WPtC3AdkAE"
+  //"https://deliveroojs3.onrender.com/",
+  //"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImQyMTE1YzU0MjBhIiwibmFtZSI6IkxvZ2ljTGVnaW9uIiwiaWF0IjoxNzE1MDgwMjE2fQ.eEdZm0eNcdX3YO65V3f483yPmAIO50FXSBTTc735Zn4",
+  "http://localhost:8080",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjMwZTU2ZDYwN2MyIiwibmFtZSI6InRlc3QxIiwiaWF0IjoxNzEzNzg5NDI1fQ.hovsONlTbtjfcf3LiGcOZ9YlCNVD93XC7WPtC3AdkAE"
 );
 const MAP_SIZE = 100;
+const DEBUG = true;
+
+
 var start_time = new Date().getTime() / 1000;
+if (!DEBUG) { console.log = () => {}; }
 
 function distance({ x: x1, y: y1 }, { x: x2, y: y2 }) {
   const dx = Math.abs(Math.round(x1) - Math.round(x2));
@@ -16,7 +20,7 @@ function distance({ x: x1, y: y1 }, { x: x2, y: y2 }) {
   return dx + dy;
 }
 
-function real_profit(parcel, carrying_parcels) {
+function real_profit(parcel, carrying) {
   // * This method computes the expected profit achievable by going to pick up a parcel, instead of moving to a delivery tile
   // ? If parcel decaying time is infinite then the real profit is the reward of the parcel
   if (CONFIG.PARCEL_DECADING_INTERVAL >= 999999) { return parcel.reward; }
@@ -35,11 +39,34 @@ function real_profit(parcel, carrying_parcels) {
     if (d < distance_to_closest_delivery_tile_from_me) { distance_to_closest_delivery_tile_from_me = d; }
   }
 
-  let loss_if_deliver_right_away = carrying_parcels * distance_to_closest_delivery_tile_from_me * distance_multiplier;
-  let loss_if_go_pick_up = carrying_parcels * distance_to_parcel * distance_multiplier + (carrying_parcels + 1) * distance_to_closest_delivery_tile_from_parcel * distance_multiplier;
+  let loss_if_deliver_right_away = carrying * distance_to_closest_delivery_tile_from_me * distance_multiplier;
+  let loss_if_go_pick_up = carrying * distance_to_parcel * distance_multiplier + (carrying + 1) * distance_to_closest_delivery_tile_from_parcel * distance_multiplier;
   let gain_if_go_pick_up = parcel_reward - distance_to_parcel * distance_multiplier;
 
   return gain_if_go_pick_up - (loss_if_go_pick_up - loss_if_deliver_right_away);
+}
+
+function reachable(x, y) {
+  console.log("Now checking reachability of { x:", x, ", y: ", y, " }...");
+  try{
+    let path = pathFind.findPath(me.x, me.y, x, y);
+    return path && path.length > 0;
+  } catch { return true; } // ? If the pathfind fails, then just blind belief that it's reachable
+}
+
+function carrying_parcels_fn() {
+  let count = 0;
+  for (const parcel of parcels.values()) {
+    if (parcel.carriedBy === me.id) { count += 1; }
+  }
+  return count;
+}
+
+function onAnyDeliveryTile(parcel) {
+  for (const delivery of delivery_tiles) {
+    if (parcel.x === delivery.x && parcel.y === delivery.y) { return true; }
+  }
+  return false;
 }
 
 // * Beliefset revision function
@@ -55,7 +82,6 @@ client.onYou(({ id, name, x, y, score }) => {
  * @type {Map<id,{id, x, y, carriedBy, reward}>}
  */
 const parcels = new Map();
-var carrying_parcels = 0;
 var pathFind = new ApathFind.default();
 var pathFindInit = false;
 var tiles = [];
@@ -98,7 +124,7 @@ client.onParcelsSensing(async (perceived_parcels) => {
   console.log("Parcel Sensing Event at time", new Date().getTime() / 1000 - start_time, "with parcels", parcels);
   for (const p of perceived_parcels) { parcels.set(p.id, p); }
   for (const [id, p] of parcels) {
-    if (!perceived_parcels.find((pp) => pp.id == id)) { parcels.delete(id); }
+    if (!perceived_parcels.find((pp) => pp.id === id)) { parcels.delete(id); }
     if (p.reward <= 2 && CONFIG.PARCEL_DECADING_INTERVAL <= 99999) { parcels.delete(id); }
   }
   generateOptions();
@@ -121,8 +147,8 @@ client.onAgentsSensing((agents) => {
       score: ag.score,
       lastUpdate: timenow,
     };
-    if (agent.id == me.id) { continue; }
-    if (agent.x == null || agent.y == null) { continue; }
+    if (String(agent.id) === String(me.id)) { continue; }
+    if (agent.x === null || agent.y === null) { continue; }
     if (agent.x < 0 || agent.y < 0) { continue; }
     if (agent.x >= MAP_SIZE || agent.y >= MAP_SIZE) { continue; }
     // check if this agent is contained in the other_agents array, if so then remove it from the old position
@@ -147,43 +173,51 @@ client.onAgentsSensing((agents) => {
 function generateOptions() {
   // * Options generation
   const options = [];
+  const currently_carrying_parcels = carrying_parcels_fn();
   for (const parcel of parcels.values()) {
     // check if any other agent is on top of that parcel
+    if (onAnyDeliveryTile(parcel)) { continue; }
     if (anyAgentOnTile({ x: parcel.x, y: parcel.y })) { continue; }
     if (!parcel.carriedBy) { options.push(["go_pick_up", parcel.x, parcel.y, parcel.id, parcel.reward]); }
   }
-  if (carrying_parcels > 0) {
+  if (currently_carrying_parcels > 0) {
     for (const delivery of delivery_tiles) {
       if (anyAgentOnTile(delivery)) { continue; }
       options.push(["go_put_down", delivery.x, delivery.y, null, null]);
     }
   }
-  if (options.length == 0) {
+  if (options.length === 0) {
     // * Consider random walk to a tile in the map that is reachable
     let x, y = 0;
     do {
       x = Math.floor(Math.random() * MAP_SIZE);
       y = Math.floor(Math.random() * MAP_SIZE);
-    } while (pathFind.tiles[y][x].val == 0);
+    } while (pathFind.tiles[y][x].val === 0 || !reachable(x, y) || distance({ x, y }, me) <= 2);
     options.push(["rnd_walk_to", x, y]);
   }
   // * Options filtering
-  let must_deliver = carrying_parcels >= CONFIG.PARCELS_MAX; // ? Se ho più di un pacco devo per forza consegnare [ Temporaneo per testing ]
-  let nothing_to_deliver = carrying_parcels == 0;
-  if (must_deliver && nothing_to_deliver) { console.log("PARCELS_MAX Cannot Be Set To 0 !!!"); return; }
+  let must_deliver = (currently_carrying_parcels >= CONFIG.PARCELS_MAX); // ? Se ho più di un pacco devo per forza consegnare [ Temporaneo per testing ]
+  let nothing_to_deliver = (currently_carrying_parcels === 0);
   let best_option;
   let nearest = Number.MAX_VALUE;
   // ! Maximize Value / Distance metric
   for (const option of options) {
-    if (must_deliver && option[0] == "go_pick_up") { continue; }
-    if (nothing_to_deliver && option[0] == "go_put_down") { continue; }
-    let [go_pick_up, x, y, id, reward] = option;
+    let [desire, x, y, id, reward] = option;
+    if (must_deliver && desire === "go_pick_up") { continue; }
+    if (nothing_to_deliver && desire === "go_put_down") { continue; }
+    if (desire === "go_pick_up" && !reachable(x, y)) { continue; }
     let current_d = distance({ x, y }, me);
     // ! Value / Distance metric
     // ? If it's a go_put_down then the distance is just that. in case of go_pick_up do *2
     let metric = 9999999;
-    if (go_pick_up == "go_pick_up") { metric = (current_d * 2) / reward; }
-    if (go_pick_up == "go_put_down") { metric = current_d / (carrying_parcels * CONFIG.PARCEL_REWARD_AVG); }
+    if (CONFIG.PARCEL_DECADING_INTERVAL < 999999) {
+      if (desire === "go_pick_up") { metric = (current_d * 2) / reward; }
+      if (desire === "go_put_down") { metric = current_d / (currently_carrying_parcels * CONFIG.PARCEL_REWARD_AVG); }
+    } else {
+      // ? We chose to go_pick_up most of the time
+      if (desire === "go_pick_up") { metric = current_d / reward; }
+      if (desire === "go_put_down") { metric = current_d; }
+    }
     if (metric < nearest) {
       best_option = option;
       nearest = metric;
@@ -194,18 +228,32 @@ function generateOptions() {
   console.log("Pushing new option to the agent", best_option);
   // ? Let us add a new intention to the agent. If the current best is go_pick_up, and in the options there is a go_put_down, then let's push also that
   if (best_option) { myAgent.push(best_option); }
-  if (best_option && best_option[0] == "go_pick_up") {
+  if (best_option && best_option[0] === "go_pick_up") {
     // Let's check if there is a go_put_down in the options
-    let go_put_down = options.find((o) => o[0] == "go_put_down");
-    if (go_put_down) {
-      myAgent.push(go_put_down);
+    // Calculate the cloest go_put_down to me now
+    let nearest_down = Number.MAX_VALUE;
+    let best_option_down = undefined;
+    for (const option_down of options) {
+      let [desire, x, y, id, reward] = option_down;
+      if (desire === "go_put_down" && reachable(x, y)) {
+        let d = distance({ x, y }, me);
+        if (d < nearest_down) {
+          best_option_down = option_down;
+          nearest_down = d;
+        }
+      }
+    }
+    if (best_option_down !== undefined && best_option_down) {
+      myAgent.push(best_option_down);
     }
   }
 }
 
 function anyAgentOnTile({ x, y }) {
   for (const agent of other_agents.values()) {
-    if (Math.round(agent.x) == x && Math.round(agent.y) == y) { return true; }
+    if (Math.round(agent.x) === Number(x) && Math.round(agent.y) === Number(y)) {
+      return true;
+    }
   }
   return false;
 }
@@ -225,7 +273,18 @@ class IntentionRevision {
         const intention = this.intention_queue[0];
         // Is queued intention still valid? Do I still want to achieve it?
         // TODO: Add other checks and cases
-        if (intention.predicate[0] == "go_pick_up") {
+        if (intention.predicate[0] === "rnd_walk_to" && carrying_parcels_fn() > 0 && delivery_tiles.length > 0) {
+          if (pathFindInit) { generateOptions(); }
+          console.log("Skipping intention because no more valid, delivery tiles are present", intention.predicate);
+          this.intention_queue.shift();
+          continue;
+        }
+        if (intention.predicate[0] === "rnd_walk_to" && this.intention_queue.find((i) => i.predicate[0] != "rnd_walk_to") !== undefined) {
+          console.log("Skipping intention because no more valid, other intentions in queue", intention.predicate);
+          this.intention_queue.shift();
+          continue;
+        }
+        if (intention.predicate[0] === "go_pick_up") {
           let p = parcels.get(intention.predicate[3]);
           if (p && p.carriedBy) {
             console.log("Skipping intention because no more valid, parcel carriedBy other agent", intention.predicate);
@@ -233,11 +292,17 @@ class IntentionRevision {
             continue;
           }
         }
-        if (intention.predicate[0] == "go_put_down" && anyAgentOnTile({ x: intention.predicate[1], y: intention.predicate[2] })) {
+        if (intention.predicate[0] === "go_put_down" && anyAgentOnTile({ x: intention.predicate[1], y: intention.predicate[2] })) {
           console.log("Skipping intention because no more valid, other agent on delivery tile", intention.predicate);
           this.intention_queue.shift();
           continue;
         }
+        if (!reachable(intention.predicate[1], intention.predicate[2])) {
+          console.log("Skipping because unreachable tile ", intention.predicate);
+          this.intention_queue.shift();
+          continue;
+        }
+
         // Start achieving intention
         await intention
           .achieve()
@@ -297,10 +362,13 @@ class IntentionRevisionRevise extends IntentionRevision {
       this.intention_queue.push(intention);
       return;
     }
-    if (last.predicate.join(" ") == predicate.join(" ")) { return; } // ? If the same intention is already being achieved, then skip
-    if (last.predicate[0] == "rnd_walk_to" && predicate[0] == "rnd_walk_to") { return; } // ? If already random walking, don't need to revise it with a new random walk
-    if (last.predicate[0] != "rnd_walk_to" && predicate[0] == "rnd_walk_to") { return; }
-    if (last.predicate[0] == "rnd_walk_to" && predicate[0] != "rnd_walk_to") {
+    const currently_carrying_parcels = carrying_parcels_fn();
+    console.log("Current Intention Predicate: ", last.predicate.join(" "));
+    console.log("Current State: [ Carry: ", currently_carrying_parcels, ", Delivery: ", delivery_tiles, " ]");
+    if (last.predicate.join(" ") === predicate.join(" ")) { return; } // ? If the same intention is already being achieved, then skip
+    if (last.predicate[0] === "rnd_walk_to" && predicate[0] === "rnd_walk_to") { return; } // ? If already random walking, don't need to revise it with a new random walk
+    if (last.predicate[0] !== "rnd_walk_to" && predicate[0] === "rnd_walk_to") { return; }
+    if (last.predicate[0] === "rnd_walk_to" && predicate[0] !== "rnd_walk_to") {
       console.log("Revising intention queue. Replacing", last.predicate, "with", predicate);
       const intention = new Intention(this, predicate);
       this.intention_queue.push(intention);
@@ -309,7 +377,7 @@ class IntentionRevisionRevise extends IntentionRevision {
     }
     // * If I'm delivering a parcel, and the intention of delivering it arises, then select by distance.
     // * Also if the parcels don't decay, just select by distance
-    if ((last.predicate[0] == "go_put_down" && predicate[0] == "go_put_down") || CONFIG.PARCEL_DECADING_INTERVAL >= 999999) {
+    if ((last.predicate[0] === "go_put_down" && predicate[0] === "go_put_down") || CONFIG.PARCEL_DECADING_INTERVAL >= 999999) {
       let [go_put_down, x, y, id] = predicate;
       let current_d = distance({ x, y }, me);
       let last_d = distance({ x: last.predicate[1], y: last.predicate[2] }, me);
@@ -322,10 +390,10 @@ class IntentionRevisionRevise extends IntentionRevision {
     }
     // TODO: If I'm picking up a parcel, and the intention of picking up a new parcel arises, then maximize the reward! [Calc distance and score]
     // ? Calculate the real_profit of both and compare them
-    if ((last.predicate[0] == "go_pick_up" && predicate[0] == "go_pick_up")) {
+    if ((last.predicate[0] === "go_pick_up" && predicate[0] === "go_pick_up")) {
       let [go_pick_up, x, y, id, reward] = predicate;
-      let profit = real_profit({ x: x, y: y, reward: reward }, carrying_parcels);
-      let last_profit = real_profit({ x: last.predicate[1], y: last.predicate[2], reward: last.predicate[4] }, carrying_parcels);
+      let profit = real_profit({ x: x, y: y, reward: reward }, currently_carrying_parcels);
+      let last_profit = real_profit({ x: last.predicate[1], y: last.predicate[2], reward: last.predicate[4] }, currently_carrying_parcels);
       if (profit > last_profit) {
         console.log("Revising intention queue. Replacing", last.predicate, "with", predicate);
         const intention = new Intention(this, predicate);
@@ -401,7 +469,7 @@ class Intention {
           // or errors are caught so to continue with next plan
         } catch (error) {
           this.log("failed intention", ...this.predicate, "with plan", planClass.name, "with error:", error);
-          if (error == "stucked") {
+          if (String(error) === "stucked") {
             // ? If stucked then try the next plan
             this.log("Found a stucked plan, trying the next one!");
             continue;
@@ -445,33 +513,35 @@ class Plan {
 }
 
 class GoPickUp extends Plan {
-  static isApplicableTo(go_pick_up, x, y, id) { return go_pick_up == "go_pick_up"; }
+  static isApplicableTo(go_pick_up, x, y, id) { return go_pick_up === "go_pick_up"; }
   async execute(go_pick_up, x, y) {
     if (this.stopped) throw ["stopped"]; // if stopped then quit
     await this.subIntention(["go_to", x, y]);
     if (this.stopped) throw ["stopped"]; // if stopped then quit
     let res = await client.pickup();
     if (this.stopped) throw ["stopped"]; // if stopped then quit
-    carrying_parcels = res.length;
+    // carrying_parcels += 1;
     return true;
   }
 }
 
 class GoPutDown extends Plan {
-  static isApplicableTo(go_put_down, x, y, id) { return go_put_down == "go_put_down"; }
+  static isApplicableTo(go_put_down, x, y, id) { return go_put_down === "go_put_down"; }
   async execute(go_put_down, x, y) {
     if (this.stopped) throw ["stopped"]; // if stopped then quit
     await this.subIntention(["go_to", x, y]);
     if (this.stopped) throw ["stopped"]; // if stopped then quit
     await client.putdown();
+    // remove my carried parcels from the parcels list now
+    for (const parcel of parcels.values()) { if (parcel.carriedBy === me.id) { parcels.delete(parcel.id); } }
     if (this.stopped) throw ["stopped"]; // if stopped then quit
-    carrying_parcels = 0;
+    // carrying_parcels = 0;
     return true;
   }
 }
 
 class AStarMove extends Plan {
-  static isApplicableTo(go_to, x, y) { return (go_to == "go_to" || go_to == "rnd_walk_to"); }
+  static isApplicableTo(go_to, x, y) { return (go_to === "go_to" || go_to === "rnd_walk_to"); }
   async execute(go_to, x, y) {
     if (this.stopped) { throw ["stopped"]; }
     await this.astars(x, y);
@@ -481,9 +551,9 @@ class AStarMove extends Plan {
 
   async astars(x, y) {
     // ? Base Case Must Be Checked
-    if (distance({ x: me.x, y: me.y }, { x, y }) == 0) { return true; }
+    if (distance({ x: me.x, y: me.y }, { x, y }) === 0) { return true; }
     if (this.stopped) { throw ["stopped"]; }
-    if (distance({ x: me.x, y: me.y }, { x, y }) == 1) {
+    if (distance({ x: me.x, y: me.y }, { x, y }) === 1) {
       let res = await this.towards(x, y);
       if (!res) {
         console.log("Stucked at the end, can't touch the objective block!");
@@ -500,7 +570,7 @@ class AStarMove extends Plan {
       this.log("Found the solution!, From: { x: ", me.x, ", y: ", me.y, " }, To: { x: ", x, ", y: ", y, "}, Path: ", path);
       for (let i = 0; i < path.length; i++) {
         let [nx, ny] = [path[i].x, path[i].y];
-        if (nx == me.x && ny == me.y) { continue; }
+        if (nx === me.x && ny === me.y) { continue; }
         let res = await this.towards(nx, ny);
         if (!res) {
           // ? Recalculate the road!
@@ -511,17 +581,18 @@ class AStarMove extends Plan {
           return true;
         }
         // If a parcel is on my tile and I still have space, then pick it up
-        try {
-          let p = undefined;
-          parcels.forEach((parcel) => {
-            if (parcel.x == me.x && parcel.y == me.y) { p = parcel; }
-          });
-          if (p && carrying_parcels < CONFIG.PARCELS_MAX) {
-            await client.pickup();
-            carrying_parcels++;
+        if (i === path.length - 1 && carrying_parcels_fn() < CONFIG.PARCELS_MAX) {
+          try {
+            let p = undefined;
+            parcels.forEach((parcel) => { if (parcel.x === me.x && parcel.y === me.y) { p = parcel; } });
+            if (p !== undefined) {
+              console.log("Picking up a new parcel on the road...");
+              await client.pickup();
+              // carrying_parcels += 1;
+            }
+          } catch (error) {
+            console.log("Error in picking up parcel on the road", error, " carrying on...");
           }
-        } catch (error) {
-          console.log("Error in picking up parcel on the road", error, " carrying on...");
         }
       }
       if (this.stopped) { throw ["stopped"]; }
