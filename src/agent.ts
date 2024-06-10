@@ -1,6 +1,6 @@
 import { DeliverooApi } from "@unitn-asa/deliveroo-js-client";
 import ApathFind from "a-star-pathfind";
-import { DEFAULT_ME, DEFAULT_USER_CONFIG, OptionStr, type Agent, type Me, type Option, type Parcel, type Point2D, type UserConfig } from "./types";
+import { DEFAULT_ME, DEFAULT_USER_CONFIG, type Agent, type Me, type Parcel, type Point2D, type UserConfig } from "./types";
 import { configParse, MAP_SIZE, DEBUG } from "./conf";
 import { IntentionRevisionRevise, type IntentionRevisionInterface } from "./intention";
 import { generateOptions } from "./options";
