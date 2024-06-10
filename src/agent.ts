@@ -45,7 +45,8 @@ function real_profit(parcel: Parcel, carrying: number): number {
 function reachable(pt: Point2D): boolean {
   // console.log("Now checking reachability of { x:", pt.x, ", y: ", pt.y, " }...");
   try{
-    let path = pathFind.findPath(me.position.x, me.position.y, pt.x, pt.y);
+    let mypos = { x: Math.round(me.position.x), y: Math.round(me.position.y) };
+    let path = pathFind.findPath(mypos.x, mypos.y, pt.x, pt.y);
     return ((path !== null) && (path.length > 0));
   } catch { return true; } // ? If the pathfind fails, then just blind belief that it's reachable
 }
@@ -597,17 +598,19 @@ class AStarMove extends Plan implements PlanInterface {
       return true;
     }
     if (this.stopped) { throw "stopped"; }
-    console.log("Now searching for a solution in Me: { x: ", me.position.x, ", y: ", me.position.y, " }, To: { x: ", target.x, ", y: ", target.y, "}");
-    let path = pathFind.findPath(me.position.x, me.position.y, target.x, target.y);
+    let mypos = { x: Math.round(me.position.x), y: Math.round(me.position.y) };
+    console.log("Now searching for a solution in Me: { x: ", mypos.x, ", y: ", mypos.y, " }, To: { x: ", target.x, ", y: ", target.y, "}");
+    let path = pathFind.findPath(mypos.x, mypos.y, target.x, target.y);
     //if (this.stopped) { console.log("Stopping Now since stopped is true"); throw "stopped"; }
     // maplog(me, x, y, path);
     if (path && path.length > 0) {
       // * We found the solution! We can follow it!
-      console.log("Found the solution!, From: { x: ", me.position.x, ", y: ", me.position.y, " }, To: { x: ", target.x, ", y: ", target.y, "}, Path: ", path);
+      console.log("Found the solution!, From: { x: ", mypos.x, ", y: ", mypos.y, " }, To: { x: ", target.x, ", y: ", target.y, "}, Path: ", path);
       for (let i = 0; i < path.length; i++) {
         //if (this.stopped) { throw "stopped"; }
         let [nx, ny] = [path[i].x, path[i].y];
-        if (nx == me.position.x && ny == me.position.y) { continue; }
+        let mypos = { x: Math.round(me.position.x), y: Math.round(me.position.y) };
+        if (nx == mypos.x && ny == mypos.y) { continue; }
         let res: boolean = await this.towards({ x: nx, y: ny });
         if (!res) {
           // ? Recalculate the road!
