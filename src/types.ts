@@ -1,4 +1,3 @@
-// define the types used in index.ts
 export type UserConfig = {
   PARCELS_MAX: number,
   MOVEMENT_STEPS: number,
