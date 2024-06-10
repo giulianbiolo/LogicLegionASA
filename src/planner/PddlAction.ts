@@ -1,0 +1,103 @@
+const PADDING: string = " ".repeat(4);
+
+export default class PddlAction {
+  // Example LightOn:
+  // name = 'lighton'
+  // parameters = '?l'
+  // precondition = 'and (switched-off ?l)'
+  // effect = 'and (switched-on ?l) (not (switched-off ?l))'
+  //
+  // exec (args) {
+  //     push a subGoal? applyEffect()?
+  // }
+
+  name;
+  parameters;
+  precondition;
+  effect;
+  executor;
+
+  /**
+   *
+   * @param {String} name
+   * @param {String} parameters
+   * @param {String} precondition
+   * @param {String} effect
+   * @param {Function} executor
+   */
+  constructor(
+    name: string,
+    parameters: string,
+    precondition: string,
+    effect: string,
+    executor: Function
+  ) {
+    this.name = name;
+    this.parameters = parameters;
+    this.precondition = precondition;
+    this.effect = effect;
+    this.executor = executor;
+  }
+
+  toPddlString(): string {
+    return `\
+(:action ${this.name}
+${PADDING}:parameters (${this.parameters})
+${PADDING}:precondition (${this.precondition})
+${PADDING}:effect (${this.effect})
+)`;
+  }
+
+  /**
+   * @param {'(not (verb ?arg1 ?arg2)) (verb ?arg1)'} literals e.g. '(not (lighton ?l))'
+   * @returns { [ true | false, predicate:string] [] } tokenized e.g. [ [false, 'lighton ?l'] ]
+   */
+  static tokenize(str: string): any {
+    str = str.replace(/\(/g, "["); // '('  -> '['
+    str = str.replace(/\)\s/g, "], "); // ') ' -> '], '
+    str = str.replace(/\)/g, "]"); // ')'  -> ']'
+    str = str.replace(/\s+/, ", "); // ' '  -> ', '
+    str = "[" + str + "]";
+    str = str.replace(/[^\[\]\,\s]+/g, '"$&"');
+    str = str.replace(/" /g, '", ');
+
+    let tokenized: any = JSON.parse(str);
+    // tokenized = tokenized.map( t => t[0]=='not' ? [false, t[1].join(' ')] : [true, t.join(' ')] );
+    return tokenized;
+  }
+
+  /**
+   *
+   * @param {Array<Array|String>} tokenized parametrized
+   * e.g. [ 'and', [ 'switched-on', '?l' ], [ 'not', [ 'switched-off', '?l' ] ] ]
+   * @param {Object} parametersMap Map of parameters key->value;
+   * e.g. {?l: light1, ?p: bob, ?room: kitchen}
+   * @param {Array<Array|String>} tokenized parametrized
+   * e.g. [ 'and', [ 'switched-on', 'l' ], [ 'not', [ 'switched-off', 'l' ] ] ]
+   */
+  static ground(tokenized: any, parametersMap: any): any {
+    return tokenized.map((tokenized: any) => {
+      if (tokenized[1] && Array.isArray(tokenized[1])) {
+        for (let subtokenized of tokenized.slice(1)) {
+          this.ground(subtokenized, parametersMap);
+        }
+      } else {
+        tokenized.map((v: any) => (parametersMap[v] ? parametersMap[v] : v));
+      }
+    });
+  }
+
+  getGroundedTokenizedPrecondition(parameterValueMap: any): any {
+    return PddlAction.ground(
+      PddlAction.tokenize(this.precondition),
+      parameterValueMap
+    );
+  }
+
+  getGroundedTokenizedEffect(parameterValueMap: any): any {
+    return PddlAction.ground(
+      PddlAction.tokenize(this.effect),
+      parameterValueMap
+    );
+  }
+}

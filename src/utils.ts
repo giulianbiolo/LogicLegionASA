@@ -1,7 +1,7 @@
 import { type Point2D, type Parcel, point2DEqual } from "./types";
 import { CONFIG, me, parcels, delivery_tiles, other_agents, pathFind } from "./agent";
 import { sleep } from "bun";
-
+import fs from "fs";
 
 export function distance(pt1: Point2D, pt2: Point2D): number {
   const dx = Math.abs(Math.round(pt1.x) - Math.round(pt2.x));
@@ -76,4 +76,17 @@ export async function try_action(action: Function, check: Function, maxTries: nu
     tries += 1;
   }
   return false;
+}
+
+/**
+ * @param {string} path
+ * @returns {Promise<string>} the content of the file at path
+ */
+export function readFile(path: string): Promise<any> {
+  return new Promise((res, rej) => {
+      fs.readFile(path, "utf8", (err, data) => {
+          if (err) rej(err)
+          else res(data)
+      })
+  })
 }
