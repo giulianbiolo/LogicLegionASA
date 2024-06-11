@@ -6,7 +6,7 @@ export type AgentArgs = {
     token: string,
     teamId: string,
     pddlSolverURL: string,
-}
+};
 export const agentArgs: AgentArgs = _getArgs();
 
 function _getArgs(): AgentArgs {

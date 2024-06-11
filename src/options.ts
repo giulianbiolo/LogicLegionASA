@@ -26,13 +26,22 @@ export function generateOptions() {
     console.log("No options available, generating random walk option");
     let rnd_x: number = 0;
     let rnd_y: number = 0;
+    // Select a random tile that is reachable and not where I am now
+    /*
     do {
-      // let's make the random walk execute around where i stand now +- 3 tiles
       rnd_x = Math.max(Math.min(Math.floor(me.position.x + Math.floor(Math.random() * 6) - 3), MAP_SIZE - 1), 0);
       rnd_y = Math.max(Math.min(Math.floor(me.position.y + Math.floor(Math.random() * 6) - 3), MAP_SIZE - 1), 0);
       console.log("trying with { x: ", rnd_x, ", y: ", rnd_y, " }");
-      /* @ts-ignore */
     } while ((pathFind.tiles[rnd_y][rnd_x].val == 0) || (!reachable({x: rnd_x, y: rnd_y})) || (distance({ x: rnd_x, y: rnd_y }, me.position) <= 1));
+    */
+   // * For the PDDL Planner we don't need to check reachability and stay near the agent
+    do {
+      rnd_x = Math.floor(Math.random() * MAP_SIZE);
+      rnd_y = Math.floor(Math.random() * MAP_SIZE);
+      /* @ts-ignore */
+    } while ((pathFind.tiles[rnd_y][rnd_x].val == 0) || distance({ x: rnd_x, y: rnd_y }, me.position) <= 1);
+
+
     // options.push({ desire: "rnd_walk_to", position: { x, y }, id: null, reward: null });
     console.log("Random walk option generated", { desire: "rnd_walk_to", position: { x: rnd_x, y: rnd_y }, id: null, reward: null });
     myAgent.push({ desire: "rnd_walk_to", position: { x: rnd_x, y: rnd_y }, id: null, reward: null });

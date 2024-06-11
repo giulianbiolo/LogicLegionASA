@@ -12,6 +12,7 @@ if (!DEBUG) { console.log = () => {}; }
 console.log("Args: ", agentArgs);
 
 // * Beliefset revision function
+export const team_agent: Me = DEFAULT_ME;
 export const me: Me = DEFAULT_ME;
 client.onYou(({ id, name, x, y, score }) => {
   me.id = id;
@@ -19,6 +20,8 @@ client.onYou(({ id, name, x, y, score }) => {
   me.position.x = x;
   me.position.y = y;
   me.score = score;
+  // ? Tell also your teammate about it!
+  // ! client.say(agentArgs.teamId, { kind: "on_me", position: { x: x, y: y }, score: score });
 });
 
 export const myAgent: IntentionRevisionInterface = new IntentionRevisionRevise();
@@ -60,8 +63,23 @@ client.onConfig((config: any) => {
   pathFindInit = true;
 });
 client.onParcelsSensing(async (perceived_parcels) => {
-  // console.log("Parcel Sensing Event at time", new Date().getTime() / 1000 - start_time, "with parcels", parcels);
-  for (const p of perceived_parcels) {
+  updateParcels(perceived_parcels);
+  // ! client.say(agentArgs.teamId, { kind: "on_parcels", parcels: perceived_parcels });
+  generateOptions();
+});
+client.onTile((tx: number, ty: number, tile_delivery: boolean) => {
+  pathFind.changeTileValue(tx, ty, 1);
+  if (tile_delivery) { delivery_tiles.push({ x: tx, y: ty }); }
+  // ! client.say(agentArgs.teamId, { kind: "on_tile", position: { x: tx, y: ty }, delivery: tile_delivery });
+});
+client.onAgentsSensing((new_agents: [{ id: string, name: string, x: number, y: number, score: number }]) => {
+  updateAgents(new_agents);
+  // ! client.say(agentArgs.teamId, { kind: "on_agents", agents: new_agents });
+  generateOptions();
+});
+
+function updateParcels(new_parcels: any): void {
+  for (const p of new_parcels) {
     parcels.set(p.id, {
       id: p.id,
       position: { x: p.x, y: p.y },
@@ -70,21 +88,13 @@ client.onParcelsSensing(async (perceived_parcels) => {
     });
   }
   for (const [id, p] of parcels) {
-    if (!perceived_parcels.find((pp) => pp.id === id)) { parcels.delete(id); }
+    if (!new_parcels.find((pp: any) => pp.id === id)) { parcels.delete(id); }
     if (p.reward && p.reward <= 2 && CONFIG.PARCEL_DECADING_INTERVAL <= 99999) { parcels.delete(id); }
     if (!p.reward) { parcels.delete(id); }
   }
-  generateOptions();
-});
-client.onTile((tx: number, ty: number, tile_delivery: boolean) => {
-  // console.log("Tile Event at time", new Date().getTime() / 1000 - start_time, "with x", x, "y", y, "delivery", delivery);
-  pathFind.changeTileValue(tx, ty, 1);
-  if (tile_delivery) { delivery_tiles.push({ x: tx, y: ty }); }
-});
-client.onAgentsSensing((new_agents: [{ id: string, name: string, x: number, y: number, score: number }]) => {
-  // console.log("Agent Sensing Event at time", new Date().getTime() / 1000 - start_time, "with parcels", parcels);
-  // * Now let's update the grid beliefset by replacement!
-  // * Now let's update the grid beliefset by revision!
+}
+
+function updateAgents(new_agents: [{ id: string, name: string, x: number, y: number, score: number }]): void {
   let timenow: number = new Date().getTime() / 1000;
   for (const ag of new_agents) {
     let agent = {
@@ -94,7 +104,7 @@ client.onAgentsSensing((new_agents: [{ id: string, name: string, x: number, y: n
       score: ag.score,
       lastUpdate: timenow,
     };
-    if (String(agent.id) === String(me.id)) { continue; }
+    if (agent.id === me.id) { continue; }
     if (agent.position.x === null || agent.position.y === null) { continue; }
     if (agent.position.x < 0 || agent.position.y < 0) { continue; }
     if (agent.position.x >= MAP_SIZE || agent.position.y >= MAP_SIZE) { continue; }
@@ -113,9 +123,31 @@ client.onAgentsSensing((new_agents: [{ id: string, name: string, x: number, y: n
       other_agents.delete(id);
     }
   }
-  // * Now let's generate new options
-  generateOptions();
+}
+
+// TODO: Implement information gathering through messages
+client.onMsg((id: string, name: string, msg: any) => {
+  if (id !== agentArgs.teamId) { return; }
+  console.log("Received message: ", msg);
+  // We need to parse the received message and use the info for our use
+  switch (msg.kind) {
+    case "on_me":
+      team_agent.position = msg.position;
+      team_agent.score = msg.score;
+      break;
+    case "on_parcels":
+      updateParcels(msg.parcels);
+      break;
+    case "on_tile":
+      pathFind.changeTileValue(msg.position.x, msg.position.y, 1);
+      if (msg.delivery) { delivery_tiles.push(msg.position); }
+      break;
+    case "on_agents":
+      updateAgents(msg.agents);
+      break;
+  }
 });
+
 // ? Execute every tot milliseconds the option generation...
 setInterval(() => { if (pathFindInit) { generateOptions(); } }, CONFIG.MOVEMENT_DURATION);
 // ? Execute every tot milliseconds the intention revision...
