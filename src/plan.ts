@@ -2,8 +2,13 @@ import { sleep } from "bun";
 import { CONFIG, client, me, parcels, pathFind } from "./agent";
 import { Intention } from "./intention";
 import { point2DEqual, type Option, type Point2D } from "./types";
-import { carrying_parcels_fn, distance, try_action } from "./utils";
+import { carrying_parcels_fn, carrying_parcels_val, distance, try_action } from "./utils";
 import clc from "chalk";
+import PddlProblem from "./planner/PddlProblem";
+import PddlExecutor from "./planner/pddl_executor";
+import { getPlan } from "./planner/pddl_planner";
+import { getPddlInit, getPddlObjects } from "./pddl";
+import type { PddlPlanStep } from "@unitn-asa/pddl-client/src/PddlExecutor";
 
 
 export const planLibrary: Map<string, Plan> = new Map();
@@ -33,7 +38,8 @@ export class Plan implements PlanInterface {
     return await sub_intention.achieve();
   }
 }
-
+// * Plan Classes For The Agent Using A* Algorithm [ No PDDL ]
+/*
 class GoPickUp extends Plan implements PlanInterface {
   isApplicableTo(option: Option): boolean { return option.desire == "go_pick_up"; }
   async execute(option: Option): Promise<boolean> {
@@ -182,9 +188,172 @@ class AStarMove extends Plan implements PlanInterface {
     return true;
   }
 }
+*/
 
-// plan classes are added to plan library
+// * Plan Classes For The Agent Using PDDL Planner
+
+class GoPickUp extends Plan implements PlanInterface {
+  isApplicableTo(option: Option): boolean { return option.desire == "go_pick_up"; }
+  async execute(option: Option): Promise<boolean> {
+    try {
+      const pddlGoal = `and (carrying ${me.id} ${option.id})`;
+      await this.subIntention({ desire: "pddl_plan", position: option.position, id: pddlGoal, reward: option.reward });
+    } catch (error) {
+      console.log(clc.bgRedBright(`Error in go_pick_up: ${error}`));
+      this.stop();
+      throw error;
+    }
+    return true;
+  }
+}
+
+class GoPutDown extends Plan implements PlanInterface {
+  isApplicableTo(option: Option): boolean { return option.desire == "go_put_down"; }
+  async execute(option: Option): Promise<boolean> {
+    try {
+      let pddlGoal: string = "and ";
+      for (const p of carrying_parcels_val()) { pddlGoal += `(delivered ${p.id}) `; }
+      await this.subIntention({ desire: "pddl_plan", position: option.position, id: pddlGoal, reward: option.reward });
+    } catch (error) {
+        console.log(clc.bgRedBright(`Error in go_put_down: ${error}`));
+        this.stop();
+        throw error;
+    }
+    return true;
+  }
+}
+
+class RandomWalkTo extends Plan implements PlanInterface {
+  isApplicableTo(option: Option): boolean { return option.desire == "rnd_walk_to"; }
+  async execute(option: Option): Promise<boolean> {
+    try {
+      const pddlGoal: string = `and (at ${me.id} y${option.position.y}_x${option.position.x})`;
+      await this.subIntention({ desire: "pddl_plan", position: option.position, id: pddlGoal, reward: option.reward });
+    } catch (error) {
+      console.log(clc.bgRedBright(`Error in rnd_walk_to: ${error}`));
+      this.stop();
+      throw error;
+    }
+    return true;
+  }
+}
+
+// ? We want to use the option.id as the pddlGoal for now, just as a hack
+class PDDLPlan extends Plan implements PlanInterface {
+  isApplicableTo(option: Option): boolean { return option.desire == "pddl_plan"; }
+  async execute(option: Option): Promise<boolean> {
+    if (this.stopped) { throw "stopped"; }
+    if (option.id === null) { throw "No pddl goal provided!"; }
+    try {
+      const pddlGoal: string = (option.id !== null) ? option.id : "";
+      const pddlProblem: PddlProblem = new PddlProblem(
+        "pddl_plan",
+        getPddlObjects(),
+        getPddlInit(),
+        pddlGoal,
+      );
+      const pddlPlan: Array<PddlPlanStep> = await getPlan(pddlProblem.toPddlString());
+      const pddlExecutor: PddlExecutor = new PddlExecutor(pddlPlan);
+      const intentions: Array<Option> = pddlExecutor.getIntentionsList();
+      for (const intention of intentions) { await this.subIntention(intention); }
+    } catch (error) {
+      console.log(clc.bgRedBright(`Error in go_to: ${error}`));
+      this.stop();
+      throw error;
+    }
+    if (this.stopped) { throw "stopped"; }
+    return true;
+  }
+}
+
+class BlindMove extends Plan implements PlanInterface {
+  isApplicableTo(option: Option): boolean { return option.desire == "blind_go_to"; }
+  async execute(option: Option): Promise<boolean> {
+    if (this.stopped) { throw "stopped"; }
+    let res: boolean = await this.towards(option.position);
+    if (!res) { console.log(clc.bgRedBright("Stucked, can't reach the next block!")); throw "stucked"; }
+    if (this.stopped) { throw "stopped"; }
+    return true;
+  }
+  async towards(target: Point2D): Promise<boolean> {
+    let maxAttempts = 25;
+    let attempts = 0;
+    console.log("Now moving towards the target...", target);
+    if (this.stopped) { console.log("Stopping now since received a stop signal (towards())"); throw "stopped"; }
+    while (Math.round(me.position.x) !== target.x || Math.round(me.position.y) !== target.y) {
+      if (this.stopped) { throw "stopped"; }
+      if (attempts >= maxAttempts) {
+        console.log(`Impossible to reach the end of the path, it should be (${target.x}, ${target.y}) but it is (${Math.round(me.position.x)},${Math.round(me.position.y)})`);
+        return false;
+      }
+      console.log("Current attempt: ", attempts, " Me: ", me.position, " Target: ", target);
+      if (Math.round(me.position.x) < target.x) {
+        console.log("Moving right...");
+        client.move("right");
+        console.log("Moved right...");
+      } else if (Math.round(me.position.x) > target.x) {
+        console.log("Moving left...");
+        client.move("left");
+        console.log("Moved left...");
+      } else if (Math.round(me.position.y) < target.y) {
+        console.log("Moving up...");
+        client.move("up");
+        console.log("Moved up...");
+      } else if (Math.round(me.position.y) > target.y) {
+        console.log("Moving down...");
+        client.move("down");
+        console.log("Moved down...");
+      }
+      console.log("Moved to target...", target);
+      await sleep(CONFIG.MOVEMENT_DURATION);
+      console.log("Awaited for movement duration...");
+      attempts++
+    }
+    console.log("Succesfully moved to target...");
+    if (this.stopped) { throw "stopped"; }
+    return true;
+  }
+}
+
+class PickUp extends Plan implements PlanInterface {
+  isApplicableTo(option: Option): boolean { return option.desire == "pick_up"; }
+  async execute(option: Option): Promise<boolean> {
+    if (this.stopped) { throw "stopped"; }
+    let nowparcels = carrying_parcels_fn();
+    let res = try_action(async () => { await client.pickup(); }, () => { return carrying_parcels_fn() > nowparcels; }, 10);
+    if (!res) { console.log(clc.bgRedBright("Failed to pick up parcel, throwing stucked!")); throw "stucked"; }
+    console.log("Client picked up the parcel succesfully!");
+    if (this.stopped) { throw "stopped"; }
+    return true;
+  }
+}
+
+class PutDown extends Plan implements PlanInterface {
+  isApplicableTo(option: Option): boolean { return option.desire == "put_down"; }
+  async execute(option: Option): Promise<boolean> {
+    if (this.stopped) { throw "stopped"; }
+    let res = try_action(async () => { await client.putdown(); }, () => { return carrying_parcels_fn() == 0; }, 10);
+    if (!res) { console.log(clc.bgRedBright("Failed to put down parcel, throwing stucked!")); throw "stucked"; }
+    console.log("Client put down the parcel succesfully!");
+    // remove my carried parcels from the parcels list now
+    for (const parcel of parcels.values()) { if (parcel.carriedBy == me.id && parcel.id) { parcels.delete(parcel.id); } }
+    if (this.stopped) { throw "stopped"; }
+    return true;
+  }
+}
+
+
+// * Plan Classes For The Agent Using A* Algorithm [ No PDDL ]
+// planLibrary.set("go_pick_up", new GoPickUp());
+// planLibrary.set("go_put_down", new GoPutDown());
+// planLibrary.set("go_to", new AStarMove());
+// planLibrary.set("rnd_walk_to", new AStarMove());
+
+// * Plan Classes For The Agent Using PDDL Planner
 planLibrary.set("go_pick_up", new GoPickUp());
 planLibrary.set("go_put_down", new GoPutDown());
-planLibrary.set("go_to", new AStarMove());
-planLibrary.set("rnd_walk_to", new AStarMove());
+planLibrary.set("rnd_walk_to", new RandomWalkTo());
+planLibrary.set("pddl_plan", new PDDLPlan());
+planLibrary.set("blind_go_to", new BlindMove());
+planLibrary.set("pick_up", new PickUp());
+planLibrary.set("put_down", new PutDown());

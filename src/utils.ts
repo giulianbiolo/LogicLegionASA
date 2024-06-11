@@ -25,6 +25,14 @@ export function carrying_parcels_fn(): number {
   return count;
 }
 
+export function carrying_parcels_val(): Parcel[] {
+  let carrying: Parcel[] = [];
+  for (const parcel of parcels.values()) {
+    if (parcel.carriedBy === me.id) { carrying.push(parcel); }
+  }
+  return carrying;
+}
+
 export function onAnyDeliveryTile(parcel: Parcel): boolean {
   for (const delivery of delivery_tiles) {
     if (point2DEqual(parcel.position, delivery)) { return true; }

@@ -10,7 +10,7 @@ export default class PddlExecutor {
    */
   constructor(plan: Array<PddlPlanStep>) { this.plan = plan; }
 
-  getIntentionsList() {
+  getIntentionsList(): Array<Option> {
     /** @type {Option[]} */
     const intentions: Array<Option> = [];
     // console.log("getIntentionsList this.plan")
@@ -19,7 +19,7 @@ export default class PddlExecutor {
     for (const planStep of this.plan) {
       if (planStep.action === "move") {
         const target: Point2D = this.getCoordinatesFromString(planStep.args[2]);
-        intentions.push({ desire: "go_to", position: target, id: null, reward: null });
+        intentions.push({ desire: "blind_go_to", position: target, id: null, reward: null });
       } else if (planStep.action === "pickup") {
         intentions.push({ desire: "pick_up", position: me.position, id: planStep.args[1], reward: null});
       } else if (planStep.action === "deliver") {

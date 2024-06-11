@@ -7,7 +7,7 @@ export default class PddlProblem {
   inits: string;
   goals: string;
 
-  constructor(name: string, objects: any, init: any, goal: any) {
+  constructor(name: string, objects: string, init: string, goal: string) {
     this.name = "problem-" + name + "-" + PddlProblem.nextId++;
     this.objects = objects;
     this.inits = init;
