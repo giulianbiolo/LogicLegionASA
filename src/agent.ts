@@ -4,10 +4,12 @@ import { DEFAULT_ME, DEFAULT_USER_CONFIG, type Agent, type Me, type Parcel, type
 import { configParse, MAP_SIZE, DEBUG } from "./conf";
 import { IntentionRevisionRevise, type IntentionRevisionInterface } from "./intention";
 import { generateOptions } from "./options";
+import { agentArgs } from "./args";
 
 
 export const client: DeliverooApi = new DeliverooApi();
 if (!DEBUG) { console.log = () => {}; }
+console.log("Args: ", agentArgs);
 
 // * Beliefset revision function
 export const me: Me = DEFAULT_ME;

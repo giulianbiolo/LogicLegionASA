@@ -31,6 +31,7 @@ export function generateOptions() {
       rnd_x = Math.max(Math.min(Math.floor(me.position.x + Math.floor(Math.random() * 6) - 3), MAP_SIZE - 1), 0);
       rnd_y = Math.max(Math.min(Math.floor(me.position.y + Math.floor(Math.random() * 6) - 3), MAP_SIZE - 1), 0);
       console.log("trying with { x: ", rnd_x, ", y: ", rnd_y, " }");
+      /* @ts-ignore */
     } while ((pathFind.tiles[rnd_y][rnd_x].val == 0) || (!reachable({x: rnd_x, y: rnd_y})) || (distance({ x: rnd_x, y: rnd_y }, me.position) <= 1));
     // options.push({ desire: "rnd_walk_to", position: { x, y }, id: null, reward: null });
     console.log("Random walk option generated", { desire: "rnd_walk_to", position: { x: rnd_x, y: rnd_y }, id: null, reward: null });

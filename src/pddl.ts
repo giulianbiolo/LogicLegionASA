@@ -6,6 +6,7 @@ export function getPddlObjects(): string {
   var pddlGrid: string = "";
   for (let y = 0; y < MAP_SIZE; y++) {
     for (let x = 0; x < MAP_SIZE; x++) {
+      /* @ts-ignore */
       if (pathFind.tiles[y][x].val === 1) {
         pddlGrid += `y${y}_x${x} - position `;
       }
@@ -22,16 +23,21 @@ export function getPddlInit(): string {
   var pddlString: string = "";
   for (let y = 0; y < MAP_SIZE; y++) {
     for (let x = 0; x < MAP_SIZE; x++) {
+      /* @ts-ignore */
       if (pathFind.tiles[y][x].val === 1) {
+        /* @ts-ignore */
         if (y > 0 && pathFind.tiles[y - 1][x].val === 1) {
           pddlString += `(can-move y${y}_x${x} y${y - 1}_x${x}) `;
         }
+        /* @ts-ignore */
         if (x > 0 && pathFind.tiles[y][x - 1].val === 1) {
           pddlString += `(can-move y${y}_x${x} y${y}_x${x - 1}) `;
         }
+        /* @ts-ignore */
         if (y < MAP_SIZE - 1 && pathFind.tiles[y + 1][x].val === 1) {
           pddlString += `(can-move y${y}_x${x} y${y + 1}_x${x}) `;
         }
+        /* @ts-ignore */
         if (x < MAP_SIZE - 1 && pathFind.tiles[y][x + 1].val === 1) {
           pddlString += `(can-move y${y}_x${x} y${y}_x${x + 1}) `;
         }

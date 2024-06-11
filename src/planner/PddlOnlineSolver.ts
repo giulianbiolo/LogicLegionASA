@@ -1,9 +1,9 @@
 import fetch from "node-fetch";
 import { sleep } from "bun";
-import { AGENTS_CONFIG } from "../../config";
+import { agentArgs } from "../args";
 import type { pddlPlanStep } from "@unitn-asa/pddl-client/src/PddlOnlineSolver";
 
-const BASE_URL: string = AGENTS_CONFIG.pddlSolverURL;
+const BASE_URL: string = agentArgs.pddlSolverURL;
 const FETCH_URL: string = BASE_URL + "/package/lama-first/solve";
 
 /**

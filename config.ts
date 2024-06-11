@@ -20,9 +20,9 @@ export const AGENTS_CONFIG: ProjectConfig = {
         token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImFhNTg1MmFiM2ExIiwibmFtZSI6IkxvZ2ljTGVnaW9uXzEiLCJpYXQiOjE3MTc0MTczOTF9.Cb0Egl3SEgwmETX8wu6NY8UxKi-oL_5fN7TFyC22Qis",
     },
     agent_2: {
-        id: "f9daf789033",
+        id: "9bb0d8cf73c",
         name: "LogicLegion_2",
-        token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImY5ZGFmNzg5MDMzIiwibmFtZSI6IkxvZ2ljTGVnaW9uXzIiLCJpYXQiOjE3MTgwMjI5Mjl9.POutHvmhRINgh04o954hz_muFErgV7ctwcPIhFDuKM8",
+        token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjliYjBkOGNmNzNjIiwibmFtZSI6IkxvZ2ljTGVnaW9uXzIiLCJpYXQiOjE3MTczMzM1ODZ9.zcKf8puIBtLmfTfPzFnOBS5wDXZF9OR1LaOvIG3x9mI",
     },
     // pddlSolverURL: "http://127.0.0.1:5001",
     pddlSolverURL: "https://solver.planning.domains:5001",
