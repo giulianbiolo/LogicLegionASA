@@ -21,7 +21,7 @@ client.onYou(({ id, name, x, y, score }) => {
   me.position.y = y;
   me.score = score;
   // ? Tell also your teammate about it!
-  // ! client.say(agentArgs.teamId, { kind: "on_me", position: { x: x, y: y }, score: score });
+  if (agentArgs.teamId !== null) { client.say(agentArgs.teamId, { kind: "on_me", position: { x: x, y: y }, score: score }); }
 });
 
 export const myAgent: IntentionRevisionInterface = new IntentionRevisionRevise();
@@ -64,17 +64,17 @@ client.onConfig((config: any) => {
 });
 client.onParcelsSensing(async (perceived_parcels) => {
   updateParcels(perceived_parcels);
-  // ! client.say(agentArgs.teamId, { kind: "on_parcels", parcels: perceived_parcels });
+  if (agentArgs.teamId !== null) { client.say(agentArgs.teamId, { kind: "on_parcels", parcels: perceived_parcels }); }
   generateOptions();
 });
 client.onTile((tx: number, ty: number, tile_delivery: boolean) => {
   pathFind.changeTileValue(tx, ty, 1);
   if (tile_delivery) { delivery_tiles.push({ x: tx, y: ty }); }
-  // ! client.say(agentArgs.teamId, { kind: "on_tile", position: { x: tx, y: ty }, delivery: tile_delivery });
+  if (agentArgs.teamId !== null) { client.say(agentArgs.teamId, { kind: "on_tile", position: { x: tx, y: ty }, delivery: tile_delivery }); }
 });
 client.onAgentsSensing((new_agents: [{ id: string, name: string, x: number, y: number, score: number }]) => {
   updateAgents(new_agents);
-  // ! client.say(agentArgs.teamId, { kind: "on_agents", agents: new_agents });
+  if (agentArgs.teamId !== null) { client.say(agentArgs.teamId, { kind: "on_agents", agents: new_agents }); }
   generateOptions();
 });
 
@@ -127,10 +127,12 @@ function updateAgents(new_agents: [{ id: string, name: string, x: number, y: num
 
 // TODO: Implement information gathering through messages
 client.onMsg((id: string, name: string, msg: any) => {
-  if (id !== agentArgs.teamId) { return; }
-  console.log("Received message: ", msg);
+  if (agentArgs.teamId !== null && id !== agentArgs.teamId) { return; }
+  // console.log("Received message: ", msg);
   // We need to parse the received message and use the info for our use
-  switch (msg.kind) {
+  if (typeof msg !== "object" || typeof msg.kind !== "string") { return; }
+  switch (msg.kind as string) {
+    // ? Information Sharing About World State
     case "on_me":
       team_agent.position = msg.position;
       team_agent.score = msg.score;
@@ -144,6 +146,28 @@ client.onMsg((id: string, name: string, msg: any) => {
       break;
     case "on_agents":
       updateAgents(msg.agents);
+      break;
+    // ? Information Sharing About Interactions
+    case "on_pickup":
+      if (parcels.has(msg.parcel_id)) {
+        let par: Parcel = parcels.get(msg.parcel_id) as Parcel;
+        par.carriedBy = msg.agent_id;
+        parcels.set(msg.parcel_id, par);
+      }
+      break;
+    case "on_putdown":
+      parcels.delete(msg.parcel_id);
+      break;
+    // ? Information Sharing About Intentions
+    case "on_intention":
+      // TODO: Implement some form of intention sharing
+      // ? > Tell companion you are going to pick up a parcel
+      // ? > Tell companion you are going to put down a parcel
+      // ? > Tell companion you are going to move to a certain position through a certain path (lock the path so that the companion doesn't take it)
+      break;
+    default:
+      console.log("Received unknown message: ", msg);
+      process.exit(1);
       break;
   }
 });

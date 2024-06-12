@@ -9,6 +9,7 @@ import PddlExecutor from "./planner/pddl_executor";
 import { getPlan } from "./planner/pddl_planner";
 import { getPddlInit, getPddlObjects } from "./pddl";
 import type { PddlPlanStep } from "@unitn-asa/pddl-client/src/PddlExecutor";
+import { agentArgs } from './args';
 
 
 export const planLibrary: Map<string, Plan> = new Map();
@@ -323,6 +324,7 @@ class PickUp extends Plan implements PlanInterface {
     let res = try_action(async () => { await client.pickup(); }, () => { return carrying_parcels_fn() > nowparcels; }, 10);
     if (!res) { console.log(clc.bgRedBright("Failed to pick up parcel, throwing stucked!")); throw "stucked"; }
     console.log("Client picked up the parcel succesfully!");
+    if (agentArgs.teamId !== null) { client.say(agentArgs.teamId, { kind: "on_pickup", parcel_id: option.id }); }
     if (this.stopped) { throw "stopped"; }
     return true;
   }
@@ -336,7 +338,12 @@ class PutDown extends Plan implements PlanInterface {
     if (!res) { console.log(clc.bgRedBright("Failed to put down parcel, throwing stucked!")); throw "stucked"; }
     console.log("Client put down the parcel succesfully!");
     // remove my carried parcels from the parcels list now
-    for (const parcel of parcels.values()) { if (parcel.carriedBy == me.id && parcel.id) { parcels.delete(parcel.id); } }
+    for (const parcel of parcels.values()) {
+      if (parcel.carriedBy == me.id && parcel.id) {
+        if (agentArgs.teamId !== null) { client.say(agentArgs.teamId, { kind: "on_putdown", parcel_id: parcel.id }); }
+        parcels.delete(parcel.id);
+      }
+    }
     if (this.stopped) { throw "stopped"; }
     return true;
   }

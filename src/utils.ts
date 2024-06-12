@@ -3,6 +3,7 @@ import { CONFIG, me, parcels, delivery_tiles, other_agents, pathFind } from "./a
 import { sleep } from "bun";
 import fs from "fs";
 
+
 export function distance(pt1: Point2D, pt2: Point2D): number {
   const dx = Math.abs(Math.round(pt1.x) - Math.round(pt2.x));
   const dy = Math.abs(Math.round(pt1.y) - Math.round(pt2.y));
