@@ -40,7 +40,7 @@ export class Plan implements PlanInterface {
   }
 }
 // * Plan Classes For The Agent Using A* Algorithm [ No PDDL ]
-/*
+
 class GoPickUp extends Plan implements PlanInterface {
   isApplicableTo(option: Option): boolean { return option.desire == "go_pick_up"; }
   async execute(option: Option): Promise<boolean> {
@@ -51,6 +51,7 @@ class GoPickUp extends Plan implements PlanInterface {
     let nowparcels = carrying_parcels_fn();
     let res = try_action(async () => { await client.pickup(); }, () => { return carrying_parcels_fn() > nowparcels; }, 10);
     if (!res) { console.log(clc.bgRedBright("Failed to pick up parcel, throwing stucked!")); throw "stucked"; }
+    if (agentArgs.teamId !== null) { client.say(agentArgs.teamId, { kind: "on_pickup", parcel_id: option.id }); }
     console.log("Client picked up the parcel succesfully!");
     if (this.stopped) { throw "stopped"; }
     // carrying_parcels += 1;
@@ -69,7 +70,12 @@ class GoPutDown extends Plan implements PlanInterface {
     if (!res) { console.log(clc.bgRedBright("Failed to put down parcel, throwing stucked!")); throw "stucked"; }
     console.log("Client put down the parcel succesfully!");
     // remove my carried parcels from the parcels list now
-    for (const parcel of parcels.values()) { if (parcel.carriedBy == me.id && parcel.id) { parcels.delete(parcel.id); } }
+    for (const parcel of parcels.values()) {
+      if (parcel.carriedBy == me.id && parcel.id) {
+        if (agentArgs.teamId !== null) { client.say(agentArgs.teamId, { kind: "on_putdown", parcel_id: parcel.id }); }
+        parcels.delete(parcel.id);
+      }
+    }
     if (this.stopped) { throw "stopped"; }
     // carrying_parcels = 0;
     return true;
@@ -189,11 +195,11 @@ class AStarMove extends Plan implements PlanInterface {
     return true;
   }
 }
-*/
+
 
 // * Plan Classes For The Agent Using PDDL Planner
 
-class GoPickUp extends Plan implements PlanInterface {
+class GoPickUpPDDL extends Plan implements PlanInterface {
   isApplicableTo(option: Option): boolean { return option.desire == "go_pick_up"; }
   async execute(option: Option): Promise<boolean> {
     try {
@@ -208,7 +214,7 @@ class GoPickUp extends Plan implements PlanInterface {
   }
 }
 
-class GoPutDown extends Plan implements PlanInterface {
+class GoPutDownPDDL extends Plan implements PlanInterface {
   isApplicableTo(option: Option): boolean { return option.desire == "go_put_down"; }
   async execute(option: Option): Promise<boolean> {
     try {
@@ -224,7 +230,7 @@ class GoPutDown extends Plan implements PlanInterface {
   }
 }
 
-class RandomWalkTo extends Plan implements PlanInterface {
+class RandomWalkToPDDL extends Plan implements PlanInterface {
   isApplicableTo(option: Option): boolean { return option.desire == "rnd_walk_to"; }
   async execute(option: Option): Promise<boolean> {
     try {
@@ -351,16 +357,18 @@ class PutDown extends Plan implements PlanInterface {
 
 
 // * Plan Classes For The Agent Using A* Algorithm [ No PDDL ]
-// planLibrary.set("go_pick_up", new GoPickUp());
-// planLibrary.set("go_put_down", new GoPutDown());
-// planLibrary.set("go_to", new AStarMove());
-// planLibrary.set("rnd_walk_to", new AStarMove());
-
-// * Plan Classes For The Agent Using PDDL Planner
-planLibrary.set("go_pick_up", new GoPickUp());
-planLibrary.set("go_put_down", new GoPutDown());
-planLibrary.set("rnd_walk_to", new RandomWalkTo());
-planLibrary.set("pddl_plan", new PDDLPlan());
-planLibrary.set("blind_go_to", new BlindMove());
-planLibrary.set("pick_up", new PickUp());
-planLibrary.set("put_down", new PutDown());
+if (agentArgs.usePDDL === false) {
+  planLibrary.set("go_pick_up", new GoPickUp());
+  planLibrary.set("go_put_down", new GoPutDown());
+  planLibrary.set("go_to", new AStarMove());
+  planLibrary.set("rnd_walk_to", new AStarMove());
+} else {
+  // * Plan Classes For The Agent Using PDDL Planner
+  planLibrary.set("go_pick_up", new GoPickUpPDDL());
+  planLibrary.set("go_put_down", new GoPutDownPDDL());
+  planLibrary.set("rnd_walk_to", new RandomWalkToPDDL());
+  planLibrary.set("pddl_plan", new PDDLPlan());
+  planLibrary.set("blind_go_to", new BlindMove());
+  planLibrary.set("pick_up", new PickUp());
+  planLibrary.set("put_down", new PutDown());
+}

@@ -6,6 +6,7 @@ export type AgentArgs = {
     token: string,
     teamId: string | null,
     pddlSolverURL: string,
+    usePDDL: boolean,
 };
 export const agentArgs: AgentArgs = _getArgs();
 
@@ -32,5 +33,6 @@ function _getArgs(): AgentArgs {
         token: argsArr[argsArr.findIndex((el) => el.trim() === "token") + 1].trim(),
         teamId: argsArr.includes("teamId") ? argsArr[argsArr.findIndex((el) => el.trim() === "teamId") + 1].trim() : null,
         pddlSolverURL: argsArr[argsArr.findIndex((el) => el.trim() === "pddlSolverURL") + 1].trim(),
+        usePDDL: argsArr.includes("usePDDL"),
     }
 }

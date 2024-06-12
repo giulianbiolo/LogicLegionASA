@@ -38,6 +38,15 @@ export const DEFAULT_ME: Me = {
   score: 0,
 };
 
+export type TeamMate = {
+  position: Point2D,
+  score: number,
+};
+export const DEFAULT_TEAMMATE: TeamMate = {
+  position: DEFAULT_POINT2D,
+  score: 0,
+};
+
 export type Parcel = {
   id: string | null,
   position: Point2D,

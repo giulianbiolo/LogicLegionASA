@@ -1,9 +1,10 @@
-import { CONFIG, delivery_tiles, me, parcels, pathFindInit } from "./agent";
+import { CONFIG, client, currTeamObj, delivery_tiles, me, parcels, pathFindInit } from "./agent";
 import { Plan, planLibrary } from "./plan";
-import { OptionStr, type Option } from "./types";
+import { OptionStr, point2DEqual, type Option } from "./types";
 import { anyAgentOnTile, carrying_parcels_fn, distance, reachable, real_profit } from "./utils";
 import { generateOptions } from "./options";
 import clc from "chalk";
+import { agentArgs } from "./args";
 
 
 export interface IntentionRevisionInterface {
@@ -25,7 +26,14 @@ export class IntentionRevision implements IntentionRevisionInterface {
         // Current intention
         const intention = this.intention_queue[0];
         // Is queued intention still valid? Do I still want to achieve it?
-        // TODO: Add other checks and cases
+        // ? Check that the team mate is not already doing the same thing, and in that case, skip only if i'm the further away
+        if (currTeamObj && !validObjOnTeamMate(intention.predicate)) {
+          if (distance(intention.predicate.position, me.position) > distance(intention.predicate.position, currTeamObj.position)) {
+            console.log("Skipping intention because no more valid, team mate is already doing the same thing", OptionStr(intention.predicate));
+            this.intention_queue.shift();
+            continue;
+          }
+        }
         if (intention.predicate.desire === "rnd_walk_to" && carrying_parcels_fn() > 0 && delivery_tiles.length > 0) {
           if (pathFindInit) { generateOptions(); }
           console.log("Skipping intention because no more valid, delivery tiles are present", OptionStr(intention.predicate));
@@ -211,13 +219,20 @@ export class Intention {
     // if stopped then quit
     if (this.stopped) { throw { msg: "stopped intention", option: this.predicate }; }
     this.log("Current intention", OptionStr(this.predicate));
+
+    if (!validObjOnTeamMate(this.predicate)) {
+      this.log("Intention goes in conflict with team mate intention, skipping...", OptionStr(this.predicate));
+      throw { msg: "Intention goes in conflict with team mate intention, skipping...", option: this.predicate };
+    }
+
     let planClass: Plan | undefined = planLibrary.get(this.predicate.desire);
-    if (planClass == undefined) { throw { msg: "no plan found for intention", option: this.predicate }; }
+    if (planClass === undefined) { throw { msg: "no plan found for intention", option: this.predicate }; }
     else { this.log("Found plan", planClass.constructor.name); }
     if (planClass.isApplicableTo(this.predicate)) {
       // plan is instantiated
       this.#current_plan = planClass;
       this.log("achieving intention", OptionStr(this.predicate), "with plan", planClass.constructor.name);
+      client.say(agentArgs.teamId, { kind: "on_objective", objective: this.predicate });
       // and plan is executed and result returned
       try {
         const plan_res: boolean = await this.#current_plan.execute(this.predicate);
@@ -239,4 +254,13 @@ export class Intention {
     this.log('no plan satisfied the intention ', OptionStr(this.predicate));
     throw { msg: "no plan satisfied the intention ", option: this.predicate };
   }
+}
+
+function validObjOnTeamMate(objective: Option): boolean {
+  // * Check if the intention is valid for the team mate
+  // * For now, just check if the team mate is not already doing the same thing
+  if (currTeamObj === null) { return true; }
+  if (currTeamObj.desire == objective.desire && point2DEqual(currTeamObj.position, objective.position)) { return false; }
+  // TODO: Add controls for going through the same path
+  return true;
 }

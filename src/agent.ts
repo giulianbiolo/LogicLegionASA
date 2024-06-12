@@ -1,6 +1,6 @@
 import { DeliverooApi } from "@unitn-asa/deliveroo-js-client";
 import ApathFind from "a-star-pathfind";
-import { DEFAULT_ME, DEFAULT_USER_CONFIG, type Agent, type Me, type Parcel, type Point2D, type UserConfig } from "./types";
+import { DEFAULT_ME, DEFAULT_USER_CONFIG, type Agent, type Me, type Parcel, type Point2D, type UserConfig, type Option, type TeamMate, DEFAULT_TEAMMATE } from "./types";
 import { configParse, MAP_SIZE, DEBUG } from "./conf";
 import { IntentionRevisionRevise, type IntentionRevisionInterface } from "./intention";
 import { generateOptions } from "./options";
@@ -12,7 +12,7 @@ if (!DEBUG) { console.log = () => {}; }
 console.log("Args: ", agentArgs);
 
 // * Beliefset revision function
-export const team_agent: Me = DEFAULT_ME;
+export const team_agent: TeamMate = DEFAULT_TEAMMATE;
 export const me: Me = DEFAULT_ME;
 client.onYou(({ id, name, x, y, score }) => {
   me.id = id;
@@ -26,6 +26,7 @@ client.onYou(({ id, name, x, y, score }) => {
 
 export const myAgent: IntentionRevisionInterface = new IntentionRevisionRevise();
 export const parcels: Map<string, Parcel> = new Map();
+export var currTeamObj: Option | null = null;
 export var pathFind: ApathFind = new ApathFind();
 export var pathFindInit: boolean = false;
 export var delivery_tiles: Array<Point2D> = [];
@@ -125,13 +126,12 @@ function updateAgents(new_agents: [{ id: string, name: string, x: number, y: num
   }
 }
 
-// TODO: Implement information gathering through messages
 client.onMsg((id: string, name: string, msg: any) => {
   if (agentArgs.teamId !== null && id !== agentArgs.teamId) { return; }
   // console.log("Received message: ", msg);
   // We need to parse the received message and use the info for our use
   if (typeof msg !== "object" || typeof msg.kind !== "string") { return; }
-  switch (msg.kind as string) {
+  switch (msg.kind) {
     // ? Information Sharing About World State
     case "on_me":
       team_agent.position = msg.position;
@@ -150,24 +150,23 @@ client.onMsg((id: string, name: string, msg: any) => {
     // ? Information Sharing About Interactions
     case "on_pickup":
       if (parcels.has(msg.parcel_id)) {
-        let par: Parcel = parcels.get(msg.parcel_id) as Parcel;
-        par.carriedBy = msg.agent_id;
-        parcels.set(msg.parcel_id, par);
+        let par: Parcel | undefined = parcels.get(msg.parcel_id);
+        if (par !== undefined) {
+          par.carriedBy = msg.agent_id;
+          parcels.set(msg.parcel_id, par);
+        }
       }
       break;
     case "on_putdown":
       parcels.delete(msg.parcel_id);
       break;
     // ? Information Sharing About Intentions
-    case "on_intention":
-      // TODO: Implement some form of intention sharing
-      // ? > Tell companion you are going to pick up a parcel
-      // ? > Tell companion you are going to put down a parcel
-      // ? > Tell companion you are going to move to a certain position through a certain path (lock the path so that the companion doesn't take it)
+    // TODO: Tell companion you are going to move to a certain position through a certain path (lock the path so that the companion doesn't take it)
+    case "on_objective":
+      currTeamObj = msg.objective;
       break;
     default:
       console.log("Received unknown message: ", msg);
-      process.exit(1);
       break;
   }
 });
