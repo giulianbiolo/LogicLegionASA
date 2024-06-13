@@ -12,6 +12,7 @@ function spawnAgent(self_agent: AgentConfig) {
     `host=${AGENTS_CONFIG.host}`,
     `token=${self_agent.token}`,
     `pddlSolverURL=${AGENTS_CONFIG.pddlSolverURL}`,
+    "usePDDL",
   ], {
     stdout: "inherit",
     stderr: "inherit",

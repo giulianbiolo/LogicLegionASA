@@ -1,3 +1,8 @@
+# PDDL Planner
+sas_plan
+output.sas
+*.pddl
+
 # Logs
 logs
 *.log

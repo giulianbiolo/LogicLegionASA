@@ -12,6 +12,7 @@ if (!DEBUG) { console.log = () => {}; }
 console.log("Args: ", agentArgs);
 
 // * Beliefset revision function
+export var local_planner_mutex: boolean = false;
 export const team_agent: TeamMate = DEFAULT_TEAMMATE;
 export const me: Me = DEFAULT_ME;
 client.onYou(({ id, name, x, y, score }) => {
@@ -159,6 +160,10 @@ client.onMsg((id: string, name: string, msg: any) => {
       break;
     case "on_putdown":
       parcels.delete(msg.parcel_id);
+      break;
+    // ? Orchestrating the local planner for race conditions
+    case "on_local_planner":
+      local_planner_mutex = msg.mutex;
       break;
     // ? Information Sharing About Intentions
     // TODO: Tell companion you are going to move to a certain position through a certain path (lock the path so that the companion doesn't take it)

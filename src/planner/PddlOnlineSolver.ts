@@ -2,6 +2,10 @@ import fetch from "node-fetch";
 import { sleep } from "bun";
 import { agentArgs } from "../args";
 import type { pddlPlanStep } from "@unitn-asa/pddl-client/src/PddlOnlineSolver";
+import { client, local_planner_mutex } from "../agent";
+import fs from "fs";
+import clc from "chalk";
+
 
 const BASE_URL: string = agentArgs.pddlSolverURL;
 const FETCH_URL: string = BASE_URL + "/package/lama-first/solve";
@@ -122,22 +126,18 @@ async function fetchPlan(
  * @param {Object} planResult
  * @returns {PddlPlanStep[]}
  */
-function processPlan(planResult: any): pddlPlanStep[] {
-  var lines = planResult.split("\n");
-  lines = lines.map((line: string) =>
-    line.replace("(", "").replace(")", "").split(" ")
-  );
-  lines.pop();
-  lines.pop();
+function processPlan(planResult: string): pddlPlanStep[] {
+  let lines: Array<string> = planResult.split("\n");
+  let liness: Array<Array<string>> = lines.map((line: string) => line.replace("(", "").replace(")", "").split(" "));
+  liness = liness.filter((line: Array<string>) => line.length > 2 && line[0] !== ";");
 
   var plan: Array<pddlPlanStep> = [];
 
-  for (let /**@type {string}*/ line of lines) {
-    var action = line.shift();
-    var args = line;
-    plan.push({ parallel: false, action: action, args: args });
+  for (let line of liness) {
+    let action = line.shift();
+    let args = line; // ? [move, agent, p1, p0]
+    if (action !== undefined) { plan.push({ parallel: false, action: action, args: args }); }
   }
-
   return plan;
 }
 
@@ -168,5 +168,59 @@ export default async function onlineSolver(
   } catch (error: any) {
     console.log(`Error in onlineSolver: ${error.message}`);
     return [];
+  }
+}
+
+
+/**
+ * @param {String} pddlDomain
+ * @param {String} pddlProblem
+ * @returns {Promise<PddlPlanStep[]>}
+ */
+export async function offlineSolver(
+  pddlDomain: string,
+  pddlProblem: string
+): Promise<pddlPlanStep[]> {
+  try {
+    validateInputs(pddlDomain, pddlProblem);
+  } catch (error: any) {
+    console.log(`Error in offlineSolver: ${error.message}`);
+    return [];
+  }
+  // ? Save both domain and problem to files
+  while (local_planner_mutex) { await sleep(100); }
+  client.say(agentArgs.teamId, { kind: "on_local_planner", mutex: true });
+  try {
+    fs.writeFileSync("/tmp/domain.pddl", pddlDomain);
+    fs.writeFileSync("/tmp/problem.pddl", pddlProblem);
+    console.log("Saved domain and problem to files");
+
+    // ? Run the planner
+    // ? Execute /opt/fast-downward/fast-downward.py --alias lama-first domain.pddl problem.pddl
+    const { exec } = require("child_process");
+    exec(
+      'python /opt/fast-downward/fast-downward.py /tmp/domain.pddl /tmp/problem.pddl --evaluator "hcea=cea()" --search "lazy_greedy([hcea], preferred=[hcea])"',
+      (error: any, stdout: any, stderr: any) => {
+        if (error) {
+          console.error(`exec error: ${error}`);
+          return;
+        }
+        console.log(`stdout: ${stdout}`);
+        console.error(`stderr: ${stderr}`);
+      }
+    );
+
+    // ? Read the plan from the plan file
+    const detailedPlan = fs.readFileSync("./sas_plan").toString();
+    console.log(clc.bgGreenBright("Plan: "), detailedPlan);
+    if (!detailedPlan) {
+      return [];
+    }
+    return processPlan(detailedPlan);
+  } catch (error: any) {
+    console.log(`Error in offlineSolver: ${error.message}`);
+    return [];
+  } finally {
+    client.say(agentArgs.teamId, { kind: "on_local_planner", mutex: false });
   }
 }
