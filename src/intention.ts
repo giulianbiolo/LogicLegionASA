@@ -5,6 +5,7 @@ import { anyAgentOnTile, carrying_parcels_fn, distance, reachable, real_profit }
 import { generateOptions } from "./options";
 import clc from "chalk";
 import { agentArgs } from "./args";
+import { MsgBuilder, MsgType } from "./communication";
 
 
 export interface IntentionRevisionInterface {
@@ -232,7 +233,8 @@ export class Intention {
       // plan is instantiated
       this.#current_plan = planClass;
       this.log("achieving intention", OptionStr(this.predicate), "with plan", planClass.constructor.name);
-      client.say(agentArgs.teamId, { kind: "on_objective", objective: this.predicate });
+      let msg: string = new MsgBuilder().kind(MsgType.ON_OBJECTIVE).objective(this.predicate).build();
+      client.say(agentArgs.teamId, msg);
       // and plan is executed and result returned
       try {
         const plan_res: boolean = await this.#current_plan.execute(this.predicate);

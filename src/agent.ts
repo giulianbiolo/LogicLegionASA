@@ -5,6 +5,7 @@ import { configParse, MAP_SIZE, DEBUG } from "./conf";
 import { IntentionRevisionRevise, type IntentionRevisionInterface } from "./intention";
 import { generateOptions } from "./options";
 import { agentArgs } from "./args";
+import { MsgBuilder, MsgType, type Message } from "./communication";
 
 
 export const client: DeliverooApi = new DeliverooApi();
@@ -22,7 +23,10 @@ client.onYou(({ id, name, x, y, score }) => {
   me.position.y = y;
   me.score = score;
   // ? Tell also your teammate about it!
-  if (agentArgs.teamId !== null) { client.say(agentArgs.teamId, { kind: "on_me", position: { x: x, y: y }, score: score }); }
+  if (agentArgs.teamId !== null) {
+    let msg: string = new MsgBuilder().kind(MsgType.ON_ME).position({ x: x, y: y }).build();
+    client.say(agentArgs.teamId, msg);
+  }
 });
 
 export const myAgent: IntentionRevisionInterface = new IntentionRevisionRevise();
@@ -66,17 +70,26 @@ client.onConfig((config: any) => {
 });
 client.onParcelsSensing(async (perceived_parcels) => {
   updateParcels(perceived_parcels);
-  if (agentArgs.teamId !== null) { client.say(agentArgs.teamId, { kind: "on_parcels", parcels: perceived_parcels }); }
+  if (agentArgs.teamId !== null) {
+    let msg: string = new MsgBuilder().kind(MsgType.ON_PARCELS).parcels(perceived_parcels).build();
+    client.say(agentArgs.teamId, msg);
+  }
   generateOptions();
 });
 client.onTile((tx: number, ty: number, tile_delivery: boolean) => {
   pathFind.changeTileValue(tx, ty, 1);
   if (tile_delivery) { delivery_tiles.push({ x: tx, y: ty }); }
-  if (agentArgs.teamId !== null) { client.say(agentArgs.teamId, { kind: "on_tile", position: { x: tx, y: ty }, delivery: tile_delivery }); }
+  if (agentArgs.teamId !== null) {
+    let msg: string = new MsgBuilder().kind(MsgType.ON_TILE).tile({ position: { x: tx, y: ty }, delivery: tile_delivery }).build();
+    client.say(agentArgs.teamId, msg);
+  }
 });
 client.onAgentsSensing((new_agents: [{ id: string, name: string, x: number, y: number, score: number }]) => {
   updateAgents(new_agents);
-  if (agentArgs.teamId !== null) { client.say(agentArgs.teamId, { kind: "on_agents", agents: new_agents }); }
+  if (agentArgs.teamId !== null) {
+    let msg: string = new MsgBuilder().kind(MsgType.ON_AGENTS).agents(new_agents).build();
+    client.say(agentArgs.teamId, msg);
+  }
   generateOptions();
 });
 
@@ -96,7 +109,7 @@ function updateParcels(new_parcels: any): void {
   }
 }
 
-function updateAgents(new_agents: [{ id: string, name: string, x: number, y: number, score: number }]): void {
+function updateAgents(new_agents: { id: string, name: string, x: number, y: number, score: number }[]): void {
   let timenow: number = new Date().getTime() / 1000;
   for (const ag of new_agents) {
     let agent = {
@@ -131,44 +144,62 @@ client.onMsg((id: string, name: string, msg: any) => {
   if (agentArgs.teamId !== null && id !== agentArgs.teamId) { return; }
   // console.log("Received message: ", msg);
   // We need to parse the received message and use the info for our use
-  if (typeof msg !== "object" || typeof msg.kind !== "string") { return; }
-  switch (msg.kind) {
+  if (typeof msg !== "string") { return; }
+  let message: Message = new MsgBuilder().load(msg);
+  switch (message.kind) {
     // ? Information Sharing About World State
-    case "on_me":
-      team_agent.position = msg.position;
-      team_agent.score = msg.score;
+    case MsgType.ON_ME:
+      // ? kind: string, position: Point2D
+      if (message.position === undefined) { return; }
+      pathFind.changeTileValue(Math.round(team_agent.position.x), Math.round(team_agent.position.y), 1);
+      team_agent.position = message.position;
+      pathFind.changeTileValue(Math.round(team_agent.position.x), Math.round(team_agent.position.y), 0);
       break;
-    case "on_parcels":
-      updateParcels(msg.parcels);
+    case MsgType.ON_PARCELS:
+      // ? kind: string, parcels: Array<Parcel>
+      if (message.parcels === undefined) { return; }
+      updateParcels(message.parcels);
       break;
-    case "on_tile":
-      pathFind.changeTileValue(msg.position.x, msg.position.y, 1);
-      if (msg.delivery) { delivery_tiles.push(msg.position); }
+    case MsgType.ON_TILE:
+      // ? kind: string, position: Point2D, delivery: boolean
+      if (message.tile === undefined) { return; }
+      pathFind.changeTileValue(message.tile.position.x, message.tile.position.y, 1);
+      if (message.tile.delivery) { delivery_tiles.push(message.tile.position); }
       break;
-    case "on_agents":
-      updateAgents(msg.agents);
+    case MsgType.ON_AGENTS:
+      // ? kind: string, agents: Array<{ id: string, name: string, x: number, y: number, score: number }>
+      if (message.agents === undefined) { return; }
+      updateAgents(message.agents);
       break;
     // ? Information Sharing About Interactions
-    case "on_pickup":
-      if (parcels.has(msg.parcel_id)) {
-        let par: Parcel | undefined = parcels.get(msg.parcel_id);
+    case MsgType.ON_PICKUP:
+      // ? kind: string, agent_id: string, parcel_id: string
+      if (message.pickup === undefined) { return; }
+      if (parcels.has(message.pickup.id)) {
+        let par: Parcel | undefined = parcels.get(message.pickup.id);
         if (par !== undefined) {
-          par.carriedBy = msg.agent_id;
-          parcels.set(msg.parcel_id, par);
+          par.carriedBy = message.pickup.id;
+          parcels.set(message.pickup.id, par);
         }
       }
       break;
-    case "on_putdown":
-      parcels.delete(msg.parcel_id);
+    case MsgType.ON_PUTDOWN:
+      // ? kind: string, parcel_id: string
+      if (message.putdown === undefined) { return; }
+      parcels.delete(message.putdown.id);
       break;
     // ? Orchestrating the local planner for race conditions
-    case "on_local_planner":
-      local_planner_mutex = msg.mutex;
+    case MsgType.ON_LOCAL_PLANNER:
+      // ? kind: string, mutex: boolean
+      if (message.mutex === undefined) { return; }
+      local_planner_mutex = message.mutex;
       break;
     // ? Information Sharing About Intentions
     // TODO: Tell companion you are going to move to a certain position through a certain path (lock the path so that the companion doesn't take it)
-    case "on_objective":
-      currTeamObj = msg.objective;
+    case MsgType.ON_OBJECTIVE:
+      // ? kind: string, objective: Option
+      if (message.objective === undefined) { return; }
+      currTeamObj = { desire: message.objective.desire, position: message.objective.position, id: null, reward: null };
       break;
     default:
       console.log("Received unknown message: ", msg);

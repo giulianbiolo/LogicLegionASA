@@ -1,10 +1,12 @@
 import fetch from "node-fetch";
+import { spawn, exec } from "child_process";
 import { sleep } from "bun";
 import { agentArgs } from "../args";
 import type { pddlPlanStep } from "@unitn-asa/pddl-client/src/PddlOnlineSolver";
 import { client, local_planner_mutex } from "../agent";
 import fs from "fs";
 import clc from "chalk";
+import { MsgBuilder, MsgType } from "../communication";
 
 
 const BASE_URL: string = agentArgs.pddlSolverURL;
@@ -189,16 +191,18 @@ export async function offlineSolver(
   }
   // ? Save both domain and problem to files
   while (local_planner_mutex) { await sleep(100); }
-  client.say(agentArgs.teamId, { kind: "on_local_planner", mutex: true });
+  let msg: string = new MsgBuilder().kind(MsgType.ON_LOCAL_PLANNER).local_planner(true).build();
+  client.say(agentArgs.teamId, msg);
   try {
-    fs.writeFileSync("/tmp/domain.pddl", pddlDomain);
-    fs.writeFileSync("/tmp/problem.pddl", pddlProblem);
+    const pddlDomainBuf = Buffer.alloc(Buffer.byteLength(pddlDomain, 'utf8'), pddlDomain, 'utf8');
+    const pddlProblemBuf = Buffer.alloc(Buffer.byteLength(pddlProblem, 'utf8'), pddlProblem, 'utf8');
+    fs.writeFileSync("/tmp/domain.pddl", pddlDomainBuf);
+    fs.writeFileSync("/tmp/problem.pddl", pddlProblemBuf);
     console.log("Saved domain and problem to files");
 
     // ? Run the planner
     // ? Execute /opt/fast-downward/fast-downward.py --alias lama-first domain.pddl problem.pddl
-    const { exec } = require("child_process");
-    exec(
+    let child = exec(
       'python /opt/fast-downward/fast-downward.py /tmp/domain.pddl /tmp/problem.pddl --evaluator "hcea=cea()" --search "lazy_greedy([hcea], preferred=[hcea])"',
       (error: any, stdout: any, stderr: any) => {
         if (error) {
@@ -209,7 +213,10 @@ export async function offlineSolver(
         console.error(`stderr: ${stderr}`);
       }
     );
-
+    let timeout = 1000;
+    let start = Date.now();
+    while (child.exitCode === null && Date.now() - start < timeout) { await sleep(100); }
+    child.kill("SIGKILL");
     // ? Read the plan from the plan file
     const detailedPlan = fs.readFileSync("./sas_plan").toString();
     console.log(clc.bgGreenBright("Plan: "), detailedPlan);
@@ -221,6 +228,7 @@ export async function offlineSolver(
     console.log(`Error in offlineSolver: ${error.message}`);
     return [];
   } finally {
-    client.say(agentArgs.teamId, { kind: "on_local_planner", mutex: false });
+    let msg: string = new MsgBuilder().kind(MsgType.ON_LOCAL_PLANNER).local_planner(false).build();
+    client.say(agentArgs.teamId, msg);
   }
 }

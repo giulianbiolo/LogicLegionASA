@@ -10,6 +10,7 @@ import { getPlan } from "./planner/pddl_planner";
 import { getPddlInit, getPddlObjects } from "./pddl";
 import type { PddlPlanStep } from "@unitn-asa/pddl-client/src/PddlExecutor";
 import { agentArgs } from './args';
+import { MsgBuilder, MsgType } from "./communication";
 
 
 export const planLibrary: Map<string, Plan> = new Map();
@@ -51,7 +52,12 @@ class GoPickUp extends Plan implements PlanInterface {
     let nowparcels = carrying_parcels_fn();
     let res = try_action(async () => { await client.pickup(); }, () => { return carrying_parcels_fn() > nowparcels; }, 10);
     if (!res) { console.log(clc.bgRedBright("Failed to pick up parcel, throwing stucked!")); throw "stucked"; }
-    if (agentArgs.teamId !== null) { client.say(agentArgs.teamId, { kind: "on_pickup", parcel_id: option.id }); }
+    if (agentArgs.teamId !== null) {
+      if (option.id) {
+        let msg: string = new MsgBuilder().kind(MsgType.ON_PICKUP).pickup({ id: option.id }).build();
+        client.say(agentArgs.teamId, msg);
+      }
+    }
     console.log("Client picked up the parcel succesfully!");
     if (this.stopped) { throw "stopped"; }
     // carrying_parcels += 1;
@@ -72,7 +78,10 @@ class GoPutDown extends Plan implements PlanInterface {
     // remove my carried parcels from the parcels list now
     for (const parcel of parcels.values()) {
       if (parcel.carriedBy == me.id && parcel.id) {
-        if (agentArgs.teamId !== null) { client.say(agentArgs.teamId, { kind: "on_putdown", parcel_id: parcel.id }); }
+        if (agentArgs.teamId !== null) {
+          let msg: string = new MsgBuilder().kind(MsgType.ON_PUTDOWN).putdown({ id: parcel.id }).build();
+          client.say(agentArgs.teamId, msg);
+        }
         parcels.delete(parcel.id);
       }
     }
@@ -206,7 +215,7 @@ class GoPickUpPDDL extends Plan implements PlanInterface {
       const pddlGoal = `and (carrying ${me.id} ${option.id})`;
       await this.subIntention({ desire: "pddl_plan", position: option.position, id: pddlGoal, reward: option.reward });
     } catch (error) {
-      console.log(clc.bgRedBright(`Error in go_pick_up: ${error}`));
+      console.log(clc.bgRedBright(`Error in go_pick_up: ${JSON.stringify(error)}`));
       this.stop();
       throw error;
     }
@@ -330,7 +339,12 @@ class PickUp extends Plan implements PlanInterface {
     let res = try_action(async () => { await client.pickup(); }, () => { return carrying_parcels_fn() > nowparcels; }, 10);
     if (!res) { console.log(clc.bgRedBright("Failed to pick up parcel, throwing stucked!")); throw "stucked"; }
     console.log("Client picked up the parcel succesfully!");
-    if (agentArgs.teamId !== null) { client.say(agentArgs.teamId, { kind: "on_pickup", parcel_id: option.id }); }
+    if (agentArgs.teamId !== null) {
+      if (option.id) {
+        let msg: string = new MsgBuilder().kind(MsgType.ON_PICKUP).pickup({ id: option.id }).build();
+        client.say(agentArgs.teamId, msg);
+      }
+    }
     if (this.stopped) { throw "stopped"; }
     return true;
   }
@@ -346,7 +360,10 @@ class PutDown extends Plan implements PlanInterface {
     // remove my carried parcels from the parcels list now
     for (const parcel of parcels.values()) {
       if (parcel.carriedBy == me.id && parcel.id) {
-        if (agentArgs.teamId !== null) { client.say(agentArgs.teamId, { kind: "on_putdown", parcel_id: parcel.id }); }
+        if (agentArgs.teamId !== null) {
+          let msg: string = new MsgBuilder().kind(MsgType.ON_PUTDOWN).putdown({ id: parcel.id }).build();
+          client.say(agentArgs.teamId, msg);
+        }
         parcels.delete(parcel.id);
       }
     }
