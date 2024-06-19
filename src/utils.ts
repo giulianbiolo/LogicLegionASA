@@ -1,5 +1,5 @@
 import { type Point2D, type Parcel, point2DEqual } from "./types";
-import { CONFIG, me, parcels, delivery_tiles, other_agents, pathFind } from "./agent";
+import { CONFIG, me, parcels, delivery_tiles, other_agents, pathFind, team_agent } from "./agent";
 import { sleep } from "bun";
 import fs from "fs";
 
@@ -13,7 +13,26 @@ export function distance(pt1: Point2D, pt2: Point2D): number {
 export function reachable(pt: Point2D): boolean {
   try {
     let mypos = { x: Math.round(me.position.x), y: Math.round(me.position.y) };
+    if (point2DEqual(mypos, pt)) { return true; }
     let path = pathFind.findPath(mypos.x, mypos.y, pt.x, pt.y);
+    return ((path !== null) && (path.length > 0));
+  } catch { return true; } // ? If the pathfind fails, then just blind belief that it's reachable
+}
+
+export function pessimistic_reachable(pt: Point2D): boolean {
+  try {
+    let mypos = { x: Math.round(me.position.x), y: Math.round(me.position.y) };
+    if (point2DEqual(mypos, pt)) { return true; }
+    let path = pathFind.findPath(mypos.x, mypos.y, pt.x, pt.y);
+    return ((path !== null) && (path.length > 0));
+  } catch { return false; } // ? If the pathfind fails, then just blind belief that it's reachable
+}
+
+export function teammate_reachable(pt: Point2D): boolean {
+  try {
+    let teampos: Point2D = { x: Math.round(team_agent.position.x), y: Math.round(team_agent.position.y) };
+    if (point2DEqual(teampos, pt)) { return true; }
+    let path: Point2D[] | null = pathFind.findPath(teampos.x, teampos.y, pt.x, pt.y);
     return ((path !== null) && (path.length > 0));
   } catch { return true; } // ? If the pathfind fails, then just blind belief that it's reachable
 }

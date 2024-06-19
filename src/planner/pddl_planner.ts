@@ -15,7 +15,7 @@ const __dirname: string = path.dirname(__filename)
 export async function getPlan(problem: string): Promise<PddlPlanStep[]> {
   let domainPath: string = path.join(__dirname, "domain.pddl")
   let domain: string = await readFile(domainPath)
-  // * var plan: Array<PddlPlanStep> = await onlineSolver(domain, problem)
-  var plan: Array<PddlPlanStep> = await offlineSolver(domain, problem)
+  var plan: Array<PddlPlanStep> = await onlineSolver(domain, problem)
+  // * var plan: Array<PddlPlanStep> = await offlineSolver(domain, problem)
   return plan
 }

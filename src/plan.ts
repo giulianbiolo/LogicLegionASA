@@ -1,8 +1,8 @@
 import { sleep } from "bun";
-import { CONFIG, client, me, parcels, pathFind } from "./agent";
+import { CONFIG, client, me, parcels, pathFind, team_agent } from "./agent";
 import { Intention } from "./intention";
-import { point2DEqual, type Option, type Point2D } from "./types";
-import { carrying_parcels_fn, carrying_parcels_val, distance, try_action } from "./utils";
+import { Desire, point2DEqual, type Option, type Point2D } from "./types";
+import { carrying_parcels_fn, carrying_parcels_val, distance, pessimistic_reachable, reachable, try_action } from "./utils";
 import clc from "chalk";
 import PddlProblem from "./planner/PddlProblem";
 import PddlExecutor from "./planner/pddl_executor";
@@ -43,10 +43,10 @@ export class Plan implements PlanInterface {
 // * Plan Classes For The Agent Using A* Algorithm [ No PDDL ]
 
 class GoPickUp extends Plan implements PlanInterface {
-  isApplicableTo(option: Option): boolean { return option.desire == "go_pick_up"; }
+  isApplicableTo(option: Option): boolean { return option.desire === Desire.GO_PICK_UP; }
   async execute(option: Option): Promise<boolean> {
     if (this.stopped) { throw "stopped"; }
-    await this.subIntention({ desire: "go_to", position: option.position, id: option.id, reward: option.reward })
+    await this.subIntention({ desire: Desire.GO_TO, position: option.position, id: option.id, reward: option.reward })
     if (this.stopped) { throw "stopped"; }
     console.log("Client reached the destination, now picking up the parcel!");
     let nowparcels = carrying_parcels_fn();
@@ -54,8 +54,8 @@ class GoPickUp extends Plan implements PlanInterface {
     if (!res) { console.log(clc.bgRedBright("Failed to pick up parcel, throwing stucked!")); throw "stucked"; }
     if (agentArgs.teamId !== null) {
       if (option.id) {
-        let msg: string = new MsgBuilder().kind(MsgType.ON_PICKUP).pickup({ id: option.id }).build();
-        client.say(agentArgs.teamId, msg);
+        let msg: MsgBuilder = new MsgBuilder().kind(MsgType.ON_PICKUP).pickup({ id: option.id });
+        if (msg.valid()) { client.say(agentArgs.teamId, msg.build()); }
       }
     }
     console.log("Client picked up the parcel succesfully!");
@@ -66,10 +66,10 @@ class GoPickUp extends Plan implements PlanInterface {
 }
 
 class GoPutDown extends Plan implements PlanInterface {
-  isApplicableTo(option: Option): boolean { return option.desire == "go_put_down"; }
+  isApplicableTo(option: Option): boolean { return option.desire === Desire.GO_PUT_DOWN; }
   async execute(option: Option): Promise<boolean> {
     if (this.stopped) { throw "stopped"; }
-    await this.subIntention({ desire: "go_to", position: option.position, id: option.id, reward: option.reward });
+    await this.subIntention({ desire: Desire.GO_TO, position: option.position, id: option.id, reward: option.reward });
     if (this.stopped) { throw "stopped"; }
     console.log("Client reached the destination, now putting down the parcel!");
     let res = try_action(async () => { await client.putdown(); }, () => { return carrying_parcels_fn() == 0; }, 10);
@@ -79,8 +79,8 @@ class GoPutDown extends Plan implements PlanInterface {
     for (const parcel of parcels.values()) {
       if (parcel.carriedBy == me.id && parcel.id) {
         if (agentArgs.teamId !== null) {
-          let msg: string = new MsgBuilder().kind(MsgType.ON_PUTDOWN).putdown({ id: parcel.id }).build();
-          client.say(agentArgs.teamId, msg);
+          let msg: MsgBuilder = new MsgBuilder().kind(MsgType.ON_PUTDOWN).putdown({ id: parcel.id });
+          if (msg.valid()) { client.say(agentArgs.teamId, msg.build()); }
         }
         parcels.delete(parcel.id);
       }
@@ -92,7 +92,7 @@ class GoPutDown extends Plan implements PlanInterface {
 }
 
 class AStarMove extends Plan implements PlanInterface {
-  isApplicableTo(option: Option): boolean { return (option.desire == "go_to" || option.desire == "rnd_walk_to"); }
+  isApplicableTo(option: Option): boolean { return (option.desire === Desire.GO_TO || option.desire === Desire.RND_WALK_TO); }
   async execute(option: Option): Promise<boolean> {
     if (this.stopped) { throw "stopped"; }
     await this.astars(option.position);
@@ -209,11 +209,11 @@ class AStarMove extends Plan implements PlanInterface {
 // * Plan Classes For The Agent Using PDDL Planner
 
 class GoPickUpPDDL extends Plan implements PlanInterface {
-  isApplicableTo(option: Option): boolean { return option.desire == "go_pick_up"; }
+  isApplicableTo(option: Option): boolean { return option.desire === Desire.GO_PICK_UP; }
   async execute(option: Option): Promise<boolean> {
     try {
       const pddlGoal = `and (carrying ${me.id} ${option.id})`;
-      await this.subIntention({ desire: "pddl_plan", position: option.position, id: pddlGoal, reward: option.reward });
+      await this.subIntention({ desire: Desire.PDDL_PLAN, position: option.position, id: pddlGoal, reward: option.reward });
     } catch (error) {
       console.log(clc.bgRedBright(`Error in go_pick_up: ${JSON.stringify(error)}`));
       this.stop();
@@ -224,12 +224,12 @@ class GoPickUpPDDL extends Plan implements PlanInterface {
 }
 
 class GoPutDownPDDL extends Plan implements PlanInterface {
-  isApplicableTo(option: Option): boolean { return option.desire == "go_put_down"; }
+  isApplicableTo(option: Option): boolean { return option.desire === Desire.GO_PUT_DOWN; }
   async execute(option: Option): Promise<boolean> {
     try {
       let pddlGoal: string = "and ";
       for (const p of carrying_parcels_val()) { pddlGoal += `(delivered ${p.id}) `; }
-      await this.subIntention({ desire: "pddl_plan", position: option.position, id: pddlGoal, reward: option.reward });
+      await this.subIntention({ desire: Desire.PDDL_PLAN, position: option.position, id: pddlGoal, reward: option.reward });
     } catch (error) {
         console.log(clc.bgRedBright(`Error in go_put_down: ${error}`));
         this.stop();
@@ -244,7 +244,7 @@ class RandomWalkToPDDL extends Plan implements PlanInterface {
   async execute(option: Option): Promise<boolean> {
     try {
       const pddlGoal: string = `and (at ${me.id} y${option.position.y}_x${option.position.x})`;
-      await this.subIntention({ desire: "pddl_plan", position: option.position, id: pddlGoal, reward: option.reward });
+      await this.subIntention({ desire: Desire.PDDL_PLAN, position: option.position, id: pddlGoal, reward: option.reward });
     } catch (error) {
       console.log(clc.bgRedBright(`Error in rnd_walk_to: ${error}`));
       this.stop();
@@ -256,7 +256,7 @@ class RandomWalkToPDDL extends Plan implements PlanInterface {
 
 // ? We want to use the option.id as the pddlGoal for now, just as a hack
 class PDDLPlan extends Plan implements PlanInterface {
-  isApplicableTo(option: Option): boolean { return option.desire == "pddl_plan"; }
+  isApplicableTo(option: Option): boolean { return option.desire === Desire.PDDL_PLAN; }
   async execute(option: Option): Promise<boolean> {
     if (this.stopped) { throw "stopped"; }
     if (option.id === null) { throw "No pddl goal provided!"; }
@@ -283,7 +283,7 @@ class PDDLPlan extends Plan implements PlanInterface {
 }
 
 class BlindMove extends Plan implements PlanInterface {
-  isApplicableTo(option: Option): boolean { return option.desire == "blind_go_to"; }
+  isApplicableTo(option: Option): boolean { return option.desire === Desire.BLIND_GO_TO; }
   async execute(option: Option): Promise<boolean> {
     if (this.stopped) { throw "stopped"; }
     let res: boolean = await this.towards(option.position);
@@ -332,7 +332,7 @@ class BlindMove extends Plan implements PlanInterface {
 }
 
 class PickUp extends Plan implements PlanInterface {
-  isApplicableTo(option: Option): boolean { return option.desire == "pick_up"; }
+  isApplicableTo(option: Option): boolean { return option.desire === Desire.PICK_UP; }
   async execute(option: Option): Promise<boolean> {
     if (this.stopped) { throw "stopped"; }
     let nowparcels = carrying_parcels_fn();
@@ -341,8 +341,8 @@ class PickUp extends Plan implements PlanInterface {
     console.log("Client picked up the parcel succesfully!");
     if (agentArgs.teamId !== null) {
       if (option.id) {
-        let msg: string = new MsgBuilder().kind(MsgType.ON_PICKUP).pickup({ id: option.id }).build();
-        client.say(agentArgs.teamId, msg);
+        let msg: MsgBuilder = new MsgBuilder().kind(MsgType.ON_PICKUP).pickup({ id: option.id });
+        if (msg.valid()) { client.say(agentArgs.teamId, msg.build()); }
       }
     }
     if (this.stopped) { throw "stopped"; }
@@ -351,7 +351,7 @@ class PickUp extends Plan implements PlanInterface {
 }
 
 class PutDown extends Plan implements PlanInterface {
-  isApplicableTo(option: Option): boolean { return option.desire == "put_down"; }
+  isApplicableTo(option: Option): boolean { return option.desire === Desire.PUT_DOWN; }
   async execute(option: Option): Promise<boolean> {
     if (this.stopped) { throw "stopped"; }
     let res = try_action(async () => { await client.putdown(); }, () => { return carrying_parcels_fn() == 0; }, 10);
@@ -361,8 +361,8 @@ class PutDown extends Plan implements PlanInterface {
     for (const parcel of parcels.values()) {
       if (parcel.carriedBy == me.id && parcel.id) {
         if (agentArgs.teamId !== null) {
-          let msg: string = new MsgBuilder().kind(MsgType.ON_PUTDOWN).putdown({ id: parcel.id }).build();
-          client.say(agentArgs.teamId, msg);
+          let msg: MsgBuilder = new MsgBuilder().kind(MsgType.ON_PUTDOWN).putdown({ id: parcel.id });
+          if (msg.valid()) { client.say(agentArgs.teamId, msg.build()); }
         }
         parcels.delete(parcel.id);
       }
@@ -375,17 +375,17 @@ class PutDown extends Plan implements PlanInterface {
 
 // * Plan Classes For The Agent Using A* Algorithm [ No PDDL ]
 if (agentArgs.usePDDL === false) {
-  planLibrary.set("go_pick_up", new GoPickUp());
-  planLibrary.set("go_put_down", new GoPutDown());
-  planLibrary.set("go_to", new AStarMove());
-  planLibrary.set("rnd_walk_to", new AStarMove());
+  planLibrary.set(Desire.GO_PICK_UP, new GoPickUp());
+  planLibrary.set(Desire.GO_PUT_DOWN, new GoPutDown());
+  planLibrary.set(Desire.GO_TO, new AStarMove());
+  planLibrary.set(Desire.RND_WALK_TO, new AStarMove());
 } else {
   // * Plan Classes For The Agent Using PDDL Planner
-  planLibrary.set("go_pick_up", new GoPickUpPDDL());
-  planLibrary.set("go_put_down", new GoPutDownPDDL());
-  planLibrary.set("rnd_walk_to", new RandomWalkToPDDL());
-  planLibrary.set("pddl_plan", new PDDLPlan());
-  planLibrary.set("blind_go_to", new BlindMove());
-  planLibrary.set("pick_up", new PickUp());
-  planLibrary.set("put_down", new PutDown());
+  planLibrary.set(Desire.GO_PICK_UP, new GoPickUpPDDL());
+  planLibrary.set(Desire.GO_PUT_DOWN, new GoPutDownPDDL());
+  planLibrary.set(Desire.RND_WALK_TO, new RandomWalkToPDDL());
+  planLibrary.set(Desire.PDDL_PLAN, new PDDLPlan());
+  planLibrary.set(Desire.BLIND_GO_TO, new BlindMove());
+  planLibrary.set(Desire.PICK_UP, new PickUp());
+  planLibrary.set(Desire.PUT_DOWN, new PutDown());
 }

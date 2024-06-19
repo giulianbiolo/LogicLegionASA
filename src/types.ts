@@ -60,8 +60,45 @@ export const DEFAULT_PARCEL: Parcel = {
   reward: 0,
 };
 
+export enum Desire {
+  RND_WALK_TO = 'rnd_walk_to',
+  GO_TO = 'go_to',
+  GO_PICK_UP = 'go_pick_up',
+  GO_PUT_DOWN = 'go_put_down',
+  PICK_UP = 'pick_up',
+  PUT_DOWN = 'put_down',
+  PDDL_PLAN = 'pddl_plan',
+  BLIND_GO_TO = 'blind_go_to',
+  UNKNOWN = 'unknown',
+};
+export const desireStr = (d: Desire): string => {
+  switch (d) {
+    case Desire.RND_WALK_TO: return 'rnd_walk_to';
+    case Desire.GO_TO: return 'go_to';
+    case Desire.GO_PICK_UP: return 'go_pick_up';
+    case Desire.GO_PUT_DOWN: return 'go_put_down';
+    case Desire.PICK_UP: return 'pick_up';
+    case Desire.PUT_DOWN: return 'put_down';
+    case Desire.PDDL_PLAN: return 'pddl_plan';
+    case Desire.BLIND_GO_TO: return 'blind_go_to';
+    case Desire.UNKNOWN: return 'unknown';
+  };
+};
+export const desireFromStr = (s: string): Desire => {
+  switch (s) {
+    case 'rnd_walk_to': return Desire.RND_WALK_TO;
+    case 'go_to': return Desire.GO_TO;
+    case 'go_pick_up': return Desire.GO_PICK_UP;
+    case 'go_put_down': return Desire.GO_PUT_DOWN;
+    case 'pick_up': return Desire.PICK_UP;
+    case 'put_down': return Desire.PUT_DOWN;
+    case 'pddl_plan': return Desire.PDDL_PLAN;
+    case 'blind_go_to': return Desire.BLIND_GO_TO;
+    default: return Desire.UNKNOWN;
+  };
+};
 export type Option = {
-  desire: string,
+  desire: Desire,
   position: Point2D,
   id: string | null,
   reward: number | null,

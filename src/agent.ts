@@ -1,6 +1,6 @@
 import { DeliverooApi } from "@unitn-asa/deliveroo-js-client";
 import ApathFind from "a-star-pathfind";
-import { DEFAULT_ME, DEFAULT_USER_CONFIG, type Agent, type Me, type Parcel, type Point2D, type UserConfig, type Option, type TeamMate, DEFAULT_TEAMMATE } from "./types";
+import { DEFAULT_ME, DEFAULT_USER_CONFIG, type Agent, type Me, type Parcel, type Point2D, type UserConfig, type Option, type TeamMate, DEFAULT_TEAMMATE, point2DEqual, Desire } from "./types";
 import { configParse, MAP_SIZE, DEBUG } from "./conf";
 import { IntentionRevisionRevise, type IntentionRevisionInterface } from "./intention";
 import { generateOptions } from "./options";
@@ -24,8 +24,8 @@ client.onYou(({ id, name, x, y, score }) => {
   me.score = score;
   // ? Tell also your teammate about it!
   if (agentArgs.teamId !== null) {
-    let msg: string = new MsgBuilder().kind(MsgType.ON_ME).position({ x: x, y: y }).build();
-    client.say(agentArgs.teamId, msg);
+    let msg: MsgBuilder = new MsgBuilder().kind(MsgType.ON_ME).position({ x: x, y: y });
+    if (msg.valid()) { client.say(agentArgs.teamId, msg.build()); }
   }
 });
 
@@ -35,6 +35,7 @@ export var currTeamObj: Option | null = null;
 export var pathFind: ApathFind = new ApathFind();
 export var pathFindInit: boolean = false;
 export var delivery_tiles: Array<Point2D> = [];
+export var spawner_tiles: Array<Point2D> = [];
 export var other_agents: Map<string, Agent> = new Map();
 export var CONFIG: UserConfig = DEFAULT_USER_CONFIG;
 
@@ -68,32 +69,33 @@ client.onConfig((config: any) => {
   pathFind.init(tiles, { allowDiagonal: false, });
   pathFindInit = true;
 });
-client.onParcelsSensing(async (perceived_parcels) => {
+client.onParcelsSensing(async (perceived_parcels: { id: string, x: number, y: number, carriedBy: string, reward: number }[]) => {
   updateParcels(perceived_parcels);
   if (agentArgs.teamId !== null) {
-    let msg: string = new MsgBuilder().kind(MsgType.ON_PARCELS).parcels(perceived_parcels).build();
-    client.say(agentArgs.teamId, msg);
+    let msg: MsgBuilder = new MsgBuilder().kind(MsgType.ON_PARCELS).parcels(perceived_parcels);
+    if (msg.valid()) { client.say(agentArgs.teamId, msg.build()); }
   }
   generateOptions();
 });
-client.onTile((tx: number, ty: number, tile_delivery: boolean) => {
+client.onTile((tx: number, ty: number, tile_delivery: boolean, tile_spawner: boolean) => {
   pathFind.changeTileValue(tx, ty, 1);
   if (tile_delivery) { delivery_tiles.push({ x: tx, y: ty }); }
+  if (tile_spawner) { spawner_tiles.push({ x: tx, y: ty }); }
   if (agentArgs.teamId !== null) {
-    let msg: string = new MsgBuilder().kind(MsgType.ON_TILE).tile({ position: { x: tx, y: ty }, delivery: tile_delivery }).build();
-    client.say(agentArgs.teamId, msg);
+    let msg: MsgBuilder = new MsgBuilder().kind(MsgType.ON_TILE).tile({ position: { x: tx, y: ty }, delivery: tile_delivery, spawner: tile_spawner });
+    if (msg.valid()) { client.say(agentArgs.teamId, msg.build()); }
   }
 });
 client.onAgentsSensing((new_agents: [{ id: string, name: string, x: number, y: number, score: number }]) => {
   updateAgents(new_agents);
   if (agentArgs.teamId !== null) {
-    let msg: string = new MsgBuilder().kind(MsgType.ON_AGENTS).agents(new_agents).build();
-    client.say(agentArgs.teamId, msg);
+    let msg: MsgBuilder = new MsgBuilder().kind(MsgType.ON_AGENTS).agents(new_agents);
+    if (msg.valid()) { client.say(agentArgs.teamId, msg.build()); }
   }
   generateOptions();
 });
 
-function updateParcels(new_parcels: any): void {
+function updateParcels(new_parcels: { id: string, x: number, y: number, carriedBy: string | null, reward: number }[]): void {
   for (const p of new_parcels) {
     parcels.set(p.id, {
       id: p.id,
@@ -119,7 +121,7 @@ function updateAgents(new_agents: { id: string, name: string, x: number, y: numb
       score: ag.score,
       lastUpdate: timenow,
     };
-    if (agent.id === me.id) { continue; }
+    if (agent.id === me.id || agent.id === agentArgs.teamId) { continue; }
     if (agent.position.x === null || agent.position.y === null) { continue; }
     if (agent.position.x < 0 || agent.position.y < 0) { continue; }
     if (agent.position.x >= MAP_SIZE || agent.position.y >= MAP_SIZE) { continue; }
@@ -151,9 +153,10 @@ client.onMsg((id: string, name: string, msg: any) => {
     case MsgType.ON_ME:
       // ? kind: string, position: Point2D
       if (message.position === undefined) { return; }
-      pathFind.changeTileValue(Math.round(team_agent.position.x), Math.round(team_agent.position.y), 1);
+      // ? For now don't consider the team mate as an obstacle
+      // pathFind.changeTileValue(Math.round(team_agent.position.x), Math.round(team_agent.position.y), 1);
       team_agent.position = message.position;
-      pathFind.changeTileValue(Math.round(team_agent.position.x), Math.round(team_agent.position.y), 0);
+      // pathFind.changeTileValue(Math.round(team_agent.position.x), Math.round(team_agent.position.y), 0);
       break;
     case MsgType.ON_PARCELS:
       // ? kind: string, parcels: Array<Parcel>
@@ -165,6 +168,7 @@ client.onMsg((id: string, name: string, msg: any) => {
       if (message.tile === undefined) { return; }
       pathFind.changeTileValue(message.tile.position.x, message.tile.position.y, 1);
       if (message.tile.delivery) { delivery_tiles.push(message.tile.position); }
+      if (message.tile.spawner) { spawner_tiles.push(message.tile.position); }
       break;
     case MsgType.ON_AGENTS:
       // ? kind: string, agents: Array<{ id: string, name: string, x: number, y: number, score: number }>

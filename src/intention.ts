@@ -1,6 +1,6 @@
 import { CONFIG, client, currTeamObj, delivery_tiles, me, parcels, pathFindInit } from "./agent";
 import { Plan, planLibrary } from "./plan";
-import { OptionStr, point2DEqual, type Option } from "./types";
+import { Desire, OptionStr, point2DEqual, type Option } from "./types";
 import { anyAgentOnTile, carrying_parcels_fn, distance, reachable, real_profit } from "./utils";
 import { generateOptions } from "./options";
 import clc from "chalk";
@@ -57,11 +57,6 @@ export class IntentionRevision implements IntentionRevisionInterface {
         // TODO: Forse è meglio fare distance(me, target) <= 1 && anyAgentOnTile(target) invece che controllare solo "go_put_down"
         if (intention.predicate.desire === "go_put_down" && anyAgentOnTile(intention.predicate.position)) {
           console.log("Skipping intention because no more valid, other agent on delivery tile", OptionStr(intention.predicate));
-          this.intention_queue.shift();
-          continue;
-        }
-        if (!reachable(intention.predicate.position)) {
-          console.log("Skipping because unreachable tile ", OptionStr(intention.predicate));
           this.intention_queue.shift();
           continue;
         }
@@ -233,14 +228,16 @@ export class Intention {
       // plan is instantiated
       this.#current_plan = planClass;
       this.log("achieving intention", OptionStr(this.predicate), "with plan", planClass.constructor.name);
-      let msg: string = new MsgBuilder().kind(MsgType.ON_OBJECTIVE).objective(this.predicate).build();
-      client.say(agentArgs.teamId, msg);
+      let msg: MsgBuilder = new MsgBuilder().kind(MsgType.ON_OBJECTIVE).objective(this.predicate);
+      if (msg.valid()) { client.say(agentArgs.teamId, msg.build()); }
       // and plan is executed and result returned
       try {
         const plan_res: boolean = await this.#current_plan.execute(this.predicate);
         this.log("succesful intention", OptionStr(this.predicate), "with plan", planClass.constructor.name, "with result:", plan_res);
         return plan_res;
       } catch (error) {
+        let msg: MsgBuilder = new MsgBuilder().kind(MsgType.ON_OBJECTIVE).objective({desire: Desire.UNKNOWN, position: { x: 0, y: 0}, id: "n0", reward: 0});
+        if (msg.valid()) { client.say(agentArgs.teamId, msg.build()); }
         this.log("failed intention", OptionStr(this.predicate), "with plan", planClass.constructor.name, "with error:", error);
         if (String(error) == "stucked") {
           // ? If stucked then try the next plan
@@ -261,8 +258,9 @@ export class Intention {
 function validObjOnTeamMate(objective: Option): boolean {
   // * Check if the intention is valid for the team mate
   // * For now, just check if the team mate is not already doing the same thing
+  console.log("Current Team Objective: ", currTeamObj, "Objective: ", objective);
   if (currTeamObj === null) { return true; }
-  if (currTeamObj.desire == objective.desire && point2DEqual(currTeamObj.position, objective.position)) { return false; }
+  if (currTeamObj.desire === objective.desire && point2DEqual(currTeamObj.position, objective.position)) { return false; }
   // TODO: Add controls for going through the same path
   return true;
 }
