@@ -240,7 +240,7 @@ class GoPutDownPDDL extends Plan implements PlanInterface {
 }
 
 class RandomWalkToPDDL extends Plan implements PlanInterface {
-  isApplicableTo(option: Option): boolean { return option.desire == "rnd_walk_to"; }
+  isApplicableTo(option: Option): boolean { return option.desire === Desire.RND_WALK_TO; }
   async execute(option: Option): Promise<boolean> {
     try {
       const pddlGoal: string = `and (at ${me.id} y${option.position.y}_x${option.position.x})`;

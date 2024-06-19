@@ -1,7 +1,7 @@
 import type { PddlPlanStep } from "@unitn-asa/pddl-client/src/PddlExecutor.js";
 import { me } from "../agent.ts"
 import "../types.ts"
-import type { Option, Point2D } from "../types.ts"
+import { Desire, type Option, type Point2D } from "../types.ts"
 
 export default class PddlExecutor {
   plan: Array<PddlPlanStep>;
@@ -19,11 +19,11 @@ export default class PddlExecutor {
     for (const planStep of this.plan) {
       if (planStep.action === "move") {
         const target: Point2D = this.getCoordinatesFromString(planStep.args[2]);
-        intentions.push({ desire: "blind_go_to", position: target, id: null, reward: null });
+        intentions.push({ desire: Desire.BLIND_GO_TO, position: target, id: null, reward: null });
       } else if (planStep.action === "pickup") {
-        intentions.push({ desire: "pick_up", position: me.position, id: planStep.args[1], reward: null});
+        intentions.push({ desire: Desire.PICK_UP, position: me.position, id: planStep.args[1], reward: null});
       } else if (planStep.action === "deliver") {
-        intentions.push({ desire: "put_down", position: me.position, id: planStep.args[1], reward: null});
+        intentions.push({ desire: Desire.PUT_DOWN, position: me.position, id: planStep.args[1], reward: null});
       }
     }
     return intentions
