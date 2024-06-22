@@ -129,13 +129,6 @@ class AStarMove extends Plan implements PlanInterface {
         if (nx == mypos.x && ny == mypos.y) { continue; }
         let res_nxy: boolean = await this.towards({ x: nx, y: ny });
         if (!res_nxy) {
-
-          // ? Possible Situations:
-          // * A1: GOPUTDOWN (Near Spawner Far From Delivery), A2: GOPICKUP | RNDWLK (Near Delivery Far from Spawner)
-          // * A1: GOPUTDOWN (Near Spawner Far from Delivery), A2: GOPUTDOWN | RNDWLK (Near Delivery Far from Spawner)
-          // In case 1: A1 should move towards A2, drop, and back up | A2 should back one step, then go forward and take the packets
-          // In case 2: A1 should drop packets, and then back up one step | A2 should move forward and take the packets
-
           // ? If MyObj to go to delivery AND closer to the spawner AND near team
           if (currMyObj !== null && currMyObj.desire === Desire.GO_PUT_DOWN && distance(team_agent.position, me.position) < 2 && nearest_spawner(me.position) < nearest_spawner(team_agent.position) && nearest_delivery(me.position) > nearest_delivery(team_agent.position) && currTeamObj !== null && (currTeamObj.desire === Desire.GO_PICK_UP || currTeamObj?.desire === Desire.RND_WALK_TO)) {
             await sleep(CONFIG.MOVEMENT_DURATION * 2);
@@ -160,6 +153,15 @@ class AStarMove extends Plan implements PlanInterface {
             await sleep(CONFIG.MOVEMENT_DURATION);
             if (anyParcelOnTile(me.position)) {await this.subIntention({ desire: Desire.PICK_UP, position: me.position, id: null, reward: null }); }
             return true;
+          }
+          if (distance(team_agent.position, me.position) < 2) {
+            // they are blocking each other, let's make them move
+            let diff: Point2D = { x: nx - me.position.x, y: ny - me.position.y };
+            let tar: Point2D = { x: me.position.x - diff.x, y: me.position.y - diff.y };
+            await sleep(CONFIG.MOVEMENT_DURATION);
+            let res_tar: boolean = await this.towards(tar);
+            pathFind.changeTileValue(team_agent.position.x, team_agent.position.y, 1);
+            throw "stucked";
           }
           // ? Recalculate the road!
           console.log("Currently stuck, recalculating the road!");
@@ -345,6 +347,14 @@ class BlindMove extends Plan implements PlanInterface {
         await sleep(CONFIG.MOVEMENT_DURATION);
         if (anyParcelOnTile(me.position)) {await this.subIntention({ desire: Desire.PICK_UP, position: me.position, id: null, reward: null }); }
         return true;
+      }
+      if (distance(team_agent.position, me.position) < 2) {
+        // they are blocking each other, let's make them move
+        let diff: Point2D = { x: option.position.x - me.position.x, y: option.position.y - me.position.y };
+        let tar: Point2D = { x: me.position.x - diff.x, y: me.position.y - diff.y };
+        await sleep(CONFIG.MOVEMENT_DURATION);
+        let res_tar: boolean = await this.towards(tar);
+        pathFind.changeTileValue(team_agent.position.x, team_agent.position.y, 1);
       }
       throw "stucked";
     }
