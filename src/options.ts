@@ -2,7 +2,7 @@ import { readConfigFile } from "typescript";
 import { CONFIG, delivery_tiles, spawner_tiles, me, myAgent, parcels, pathFind, pathFindInit, team_agent } from "./agent";
 import { MAP_SIZE } from "./conf";
 import { type Option, OptionStr, Desire } from "./types";
-import { anyAgentOnTile, carrying_parcels_fn, distance, onAnyDeliveryTile, reachable, teammate_reachable } from "./utils";
+import { anyAgentOnTile, carrying_parcels_fn, distance, onAnyDeliveryTile, reachable } from "./utils";
 import { agentArgs } from "./args";
 
 
@@ -11,6 +11,7 @@ export function generateOptions() {
   console.log("Generating new options for the agent");
   const options: Array<Option> = [];
   const currently_carrying_parcels = carrying_parcels_fn();
+
   for (const parcel of parcels.values()) {
     // check if any other agent is on top of that parcel
     if (onAnyDeliveryTile(parcel)) { continue; }
@@ -24,18 +25,7 @@ export function generateOptions() {
     }
   }
   if (options.length === 0 && pathFindInit) {
-    // * Consider random walk to a tile in the map that is reachable
     console.log("No options available, generating random walk option");
-    // let rnd_x: number = 0;
-    // let rnd_y: number = 0;
-    // Select a random tile that is reachable and not where I am now
-    /*
-    do {
-      rnd_x = Math.max(Math.min(Math.floor(me.position.x + Math.floor(Math.random() * 6) - 3), MAP_SIZE - 1), 0);
-      rnd_y = Math.max(Math.min(Math.floor(me.position.y + Math.floor(Math.random() * 6) - 3), MAP_SIZE - 1), 0);
-      console.log("trying with { x: ", rnd_x, ", y: ", rnd_y, " }");
-    } while ((pathFind.tiles[rnd_y][rnd_x].val == 0) || (!reachable({x: rnd_x, y: rnd_y})) || (distance({ x: rnd_x, y: rnd_y }, me.position) <= 1));
-    */
    // * For the PDDL Planner we don't need to check reachability and stay near the agent
    // ? Randomly select one of the spawner tiles
     let rnd_spawner = spawner_tiles[Math.floor(Math.random() * spawner_tiles.length)];

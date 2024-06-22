@@ -14,7 +14,7 @@ function spawnAgent(self_agent: AgentConfig, teammate_agent: AgentConfig) {
     `token=${self_agent.token}`,
     `teamId=${teammate_agent.id}`,
     `pddlSolverURL=${AGENTS_CONFIG.pddlSolverURL}`,
-    "usePDDL",
+    //"usePDDL",
   ], {
     stdout: "inherit",
     stderr: "inherit",

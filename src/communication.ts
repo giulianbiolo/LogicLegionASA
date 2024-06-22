@@ -1,4 +1,5 @@
-import { CONFIG } from "./agent";
+import { CONFIG, me } from "./agent";
+import { agentArgs } from "./args";
 import { type Parcel, type Point2D, type Option, type Desire, desireFromStr, desireStr } from "./types";
 import clc from "chalk";
 
@@ -135,7 +136,7 @@ export class MsgBuilder {
         return this;
     }
     agents(agents: Array<{id: string, name: string, x: number, y: number, score: number}>): MsgBuilder {
-        if (agents.length > 0) { this.msg.agents = agents; }
+        if (agents.length > 0) { this.msg.agents = agents.filter((agent) => { return agent.id !== me.id && agent.id !== agentArgs.teamId; }); }
         return this;
     }
     pickup(parcel: {id: string}): MsgBuilder {

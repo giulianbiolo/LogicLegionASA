@@ -1,4 +1,4 @@
-import { CONFIG, client, currTeamObj, delivery_tiles, me, parcels, pathFindInit } from "./agent";
+import { CONFIG, client, currMyObj, currTeamObj, delivery_tiles, me, parcels, pathFindInit, setCurrMyObj, team_agent } from "./agent";
 import { Plan, planLibrary } from "./plan";
 import { Desire, OptionStr, point2DEqual, type Option } from "./types";
 import { anyAgentOnTile, carrying_parcels_fn, distance, reachable, real_profit } from "./utils";
@@ -228,8 +228,12 @@ export class Intention {
       // plan is instantiated
       this.#current_plan = planClass;
       this.log("achieving intention", OptionStr(this.predicate), "with plan", planClass.constructor.name);
-      let msg: MsgBuilder = new MsgBuilder().kind(MsgType.ON_OBJECTIVE).objective(this.predicate);
-      if (msg.valid()) { client.say(agentArgs.teamId, msg.build()); }
+      let ignored_desires: Desire[] = [Desire.BLIND_GO_TO, Desire.PICK_UP, Desire.PUT_DOWN, Desire.UNKNOWN, Desire.GO_TO, Desire.PDDL_PLAN];
+      if (!ignored_desires.includes(this.predicate.desire)) {
+        let msg: MsgBuilder = new MsgBuilder().kind(MsgType.ON_OBJECTIVE).objective(this.predicate);
+        if (msg.valid()) { client.say(agentArgs.teamId, msg.build()); }
+        setCurrMyObj(this.predicate);
+      }
       // and plan is executed and result returned
       try {
         const plan_res: boolean = await this.#current_plan.execute(this.predicate);
@@ -260,7 +264,11 @@ function validObjOnTeamMate(objective: Option): boolean {
   // * For now, just check if the team mate is not already doing the same thing
   console.log("Current Team Objective: ", currTeamObj, "Objective: ", objective);
   if (currTeamObj === null) { return true; }
-  if (currTeamObj.desire === objective.desire && point2DEqual(currTeamObj.position, objective.position)) { return false; }
+  if (currTeamObj.desire === objective.desire && point2DEqual(currTeamObj.position, objective.position)) {
+    if (distance(currTeamObj.position, me.position) < distance(currTeamObj.position, team_agent.position)) {
+      return true;
+    } else { return false; }
+  }
   // TODO: Add controls for going through the same path
   return true;
 }

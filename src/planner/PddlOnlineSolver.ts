@@ -1,4 +1,4 @@
-import fetch from "node-fetch";
+import fetch, { Response } from "node-fetch";
 import { spawn, exec } from "child_process";
 import { sleep } from "bun";
 import { agentArgs } from "../args";
@@ -28,6 +28,25 @@ function validateInputs(pddlDomain: any, pddlProblem: any): void {
 }
 
 /**
+ * 
+ * @param {string} resource the URL to fetch
+ * @param {any} options the options for the fetch request
+ * @returns the response from the fetch request
+ */
+async function fetchWithTimeout(resource: string, options: any = {}): Promise<Response> {
+  const { timeout = 8000 } = options; // ? Default timeout is 8 seconds
+  const controller: AbortController = new AbortController();
+  const id: Timer = setTimeout(() => controller.abort(), timeout);
+  const response: Response = await fetch(resource, {
+    ...options,
+    signal: controller.signal  
+  });
+  clearTimeout(id);
+  return response;
+}
+
+
+/**
  * Get the URL to fetch the plan
  * @param {String} pddlDomain
  * @param {String} pddlProblem
@@ -39,7 +58,7 @@ async function getPlanFetchUrl(
   pddlProblem: string
 ): Promise<any> {
   try {
-    const response = await fetch(FETCH_URL, {
+    const response = await fetchWithTimeout(FETCH_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -50,18 +69,14 @@ async function getPlanFetchUrl(
         number_of_plans: 1,
       }),
     });
-
     if (!response.ok) {
       throw new Error(`Error at ${FETCH_URL}: ${response.statusText}`);
     }
-
     const result: any = await response.json();
-
     if (result.status === "error") {
       const errorMessage: string = result.result.error || "Unknown error";
       throw new Error(`Error at ${FETCH_URL}: ${errorMessage}`);
     }
-
     return result.result;
   } catch (error: any) {
     console.log(`Failed to fetch initial plan: ${error.message}`);
@@ -86,7 +101,7 @@ async function fetchPlan(
   let response: any = null;
 
   const fetchWithRetry = async () => {
-    const fetchResponse = await fetch(fetchPlanUrl, {
+    const fetchResponse = await fetchWithTimeout(fetchPlanUrl, {
       method: "GET",
       headers: {
         "Content-Type": "application/json",

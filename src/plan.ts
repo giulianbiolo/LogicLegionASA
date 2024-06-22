@@ -1,8 +1,8 @@
 import { sleep } from "bun";
-import { CONFIG, client, me, parcels, pathFind, team_agent } from "./agent";
+import { CONFIG, client, currMyObj, currTeamObj, me, parcels, pathFind, team_agent } from "./agent";
 import { Intention } from "./intention";
 import { Desire, point2DEqual, type Option, type Point2D } from "./types";
-import { carrying_parcels_fn, carrying_parcels_val, distance, pessimistic_reachable, reachable, try_action } from "./utils";
+import { anyParcelOnTile, carrying_parcels_fn, carrying_parcels_val, distance, nearest_delivery, nearest_spawner, try_action } from "./utils";
 import clc from "chalk";
 import PddlProblem from "./planner/PddlProblem";
 import PddlExecutor from "./planner/pddl_executor";
@@ -127,8 +127,40 @@ class AStarMove extends Plan implements PlanInterface {
         let [nx, ny] = [path[i].x, path[i].y];
         let mypos = { x: Math.round(me.position.x), y: Math.round(me.position.y) };
         if (nx == mypos.x && ny == mypos.y) { continue; }
-        let res: boolean = await this.towards({ x: nx, y: ny });
-        if (!res) {
+        let res_nxy: boolean = await this.towards({ x: nx, y: ny });
+        if (!res_nxy) {
+
+          // ? Possible Situations:
+          // * A1: GOPUTDOWN (Near Spawner Far From Delivery), A2: GOPICKUP | RNDWLK (Near Delivery Far from Spawner)
+          // * A1: GOPUTDOWN (Near Spawner Far from Delivery), A2: GOPUTDOWN | RNDWLK (Near Delivery Far from Spawner)
+          // In case 1: A1 should move towards A2, drop, and back up | A2 should back one step, then go forward and take the packets
+          // In case 2: A1 should drop packets, and then back up one step | A2 should move forward and take the packets
+
+          // ? If MyObj to go to delivery AND closer to the spawner AND near team
+          if (currMyObj !== null && currMyObj.desire === Desire.GO_PUT_DOWN && distance(team_agent.position, me.position) < 2 && nearest_spawner(me.position) < nearest_spawner(team_agent.position) && nearest_delivery(me.position) > nearest_delivery(team_agent.position) && currTeamObj !== null && (currTeamObj.desire === Desire.GO_PICK_UP || currTeamObj?.desire === Desire.RND_WALK_TO)) {
+            await sleep(CONFIG.MOVEMENT_DURATION * 2);
+            let res_ahead: boolean | Intention = await this.towards(team_agent.position);
+            await sleep(CONFIG.MOVEMENT_DURATION);
+            let res: boolean | Intention = await this.subIntention({ desire: Desire.PUT_DOWN, position: team_agent.position, id: null, reward: null });
+            let diff: Point2D = { x: nx - me.position.x, y: ny - me.position.y };
+            let tar: Point2D = { x: me.position.x - diff.x, y: me.position.y - diff.y };
+            await sleep(CONFIG.MOVEMENT_DURATION);
+            let res_tar: boolean = await this.towards(tar);
+            await sleep(CONFIG.MOVEMENT_DURATION);
+            return true;
+            // ? Else, IF near team AND farther away from the spawner
+          } else if (distance(team_agent.position, me.position) < 2 && currMyObj !== null && currMyObj.desire !== Desire.GO_PUT_DOWN && nearest_spawner(me.position) > nearest_spawner(team_agent.position) && nearest_delivery(me.position) < nearest_delivery(team_agent.position)) {
+            // if a block under me take if!
+            if (anyParcelOnTile(me.position)) { await this.subIntention({ desire: Desire.PICK_UP, position: me.position, id: null, reward: null }); }
+            // move back one step so that the teammate can get ahead of one block before
+            let diff: Point2D = { x: nx - me.position.x, y: ny - me.position.y };
+            let tar: Point2D = { x: me.position.x - diff.x, y: me.position.y - diff.y };
+            await sleep(CONFIG.MOVEMENT_DURATION);
+            let res_tar: boolean = await this.towards(tar);
+            await sleep(CONFIG.MOVEMENT_DURATION);
+            if (anyParcelOnTile(me.position)) {await this.subIntention({ desire: Desire.PICK_UP, position: me.position, id: null, reward: null }); }
+            return true;
+          }
           // ? Recalculate the road!
           console.log("Currently stuck, recalculating the road!");
           if (this.stopped) { throw "stopped"; }
@@ -287,8 +319,35 @@ class BlindMove extends Plan implements PlanInterface {
   async execute(option: Option): Promise<boolean> {
     if (this.stopped) { throw "stopped"; }
     let res: boolean = await this.towards(option.position);
-    if (!res) { console.log(clc.bgRedBright("Stucked, can't reach the next block!")); throw "stucked"; }
-    if (this.stopped) { throw "stopped"; }
+    if (!res) {
+      console.log(clc.bgRedBright("Stucked, can't reach the next block!"));
+      // * Before throwing stucked, check if teammate is near me, if so try letting him the blocks on the ground, and move back to the spawner
+      if (currMyObj !== null && currMyObj.desire === Desire.GO_PUT_DOWN && distance(team_agent.position, me.position) < 2 && nearest_spawner(me.position) < nearest_spawner(team_agent.position) && nearest_delivery(me.position) > nearest_delivery(team_agent.position) && currTeamObj !== null && (currTeamObj.desire === Desire.GO_PICK_UP || currTeamObj?.desire === Desire.RND_WALK_TO)) {
+        await sleep(CONFIG.MOVEMENT_DURATION * 2);
+        let res_ahead: boolean | Intention = await this.towards(team_agent.position);
+        await sleep(CONFIG.MOVEMENT_DURATION);
+        let res: boolean | Intention = await this.subIntention({ desire: Desire.PUT_DOWN, position: team_agent.position, id: null, reward: null });
+        let diff: Point2D = { x: option.position.x - me.position.x, y: option.position.y - me.position.y };
+        let tar: Point2D = { x: me.position.x - diff.x, y: me.position.y - diff.y };
+        await sleep(CONFIG.MOVEMENT_DURATION);
+        let res_tar: boolean = await this.towards(tar);
+        await sleep(CONFIG.MOVEMENT_DURATION);
+        return true;
+        // ? Else, IF near team AND farther away from the spawner
+      } else if (distance(team_agent.position, me.position) < 2 && currMyObj !== null && currMyObj.desire !== Desire.GO_PUT_DOWN && nearest_spawner(me.position) > nearest_spawner(team_agent.position) && nearest_delivery(me.position) < nearest_delivery(team_agent.position)) {
+        // if a block under me take if!
+        if (anyParcelOnTile(me.position)) { await this.subIntention({ desire: Desire.PICK_UP, position: me.position, id: null, reward: null }); }
+        // move back one step so that the teammate can get ahead of one block before
+        let diff: Point2D = { x: option.position.x - me.position.x, y: option.position.y - me.position.y };
+        let tar: Point2D = { x: me.position.x - diff.x, y: me.position.y - diff.y };
+        await sleep(CONFIG.MOVEMENT_DURATION);
+        let res_tar: boolean = await this.towards(tar);
+        await sleep(CONFIG.MOVEMENT_DURATION);
+        if (anyParcelOnTile(me.position)) {await this.subIntention({ desire: Desire.PICK_UP, position: me.position, id: null, reward: null }); }
+        return true;
+      }
+      throw "stucked";
+    }
     return true;
   }
   async towards(target: Point2D): Promise<boolean> {
@@ -386,6 +445,6 @@ if (agentArgs.usePDDL === false) {
   planLibrary.set(Desire.RND_WALK_TO, new RandomWalkToPDDL());
   planLibrary.set(Desire.PDDL_PLAN, new PDDLPlan());
   planLibrary.set(Desire.BLIND_GO_TO, new BlindMove());
-  planLibrary.set(Desire.PICK_UP, new PickUp());
-  planLibrary.set(Desire.PUT_DOWN, new PutDown());
 }
+planLibrary.set(Desire.PICK_UP, new PickUp());
+planLibrary.set(Desire.PUT_DOWN, new PutDown());

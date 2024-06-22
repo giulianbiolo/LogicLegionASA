@@ -31,7 +31,9 @@ client.onYou(({ id, name, x, y, score }) => {
 
 export const myAgent: IntentionRevisionInterface = new IntentionRevisionRevise();
 export const parcels: Map<string, Parcel> = new Map();
+export var currMyObj: Option | null = null;
 export var currTeamObj: Option | null = null;
+export function setCurrMyObj(option: Option): void { currMyObj = option; }
 export var pathFind: ApathFind = new ApathFind();
 export var pathFindInit: boolean = false;
 export var delivery_tiles: Array<Point2D> = [];
