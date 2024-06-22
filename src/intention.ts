@@ -1,4 +1,4 @@
-import { CONFIG, client, currMyObj, currTeamObj, delivery_tiles, me, parcels, pathFindInit, setCurrMyObj, team_agent } from "./agent";
+import { CONFIG, client, currTeamObj, delivery_tiles, me, parcels, pathFindInit, setCurrMyObj, team_agent } from "./agent";
 import { Plan, planLibrary } from "./plan";
 import { Desire, OptionStr, point2DEqual, type Option } from "./types";
 import { anyAgentOnTile, carrying_parcels_fn, distance, reachable, real_profit } from "./utils";

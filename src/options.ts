@@ -1,9 +1,6 @@
-import { readConfigFile } from "typescript";
-import { CONFIG, delivery_tiles, spawner_tiles, me, myAgent, parcels, pathFind, pathFindInit, team_agent } from "./agent";
-import { MAP_SIZE } from "./conf";
+import { CONFIG, delivery_tiles, spawner_tiles, me, myAgent, parcels, pathFindInit } from "./agent";
 import { type Option, OptionStr, Desire } from "./types";
 import { anyAgentOnTile, carrying_parcels_fn, distance, onAnyDeliveryTile, reachable } from "./utils";
-import { agentArgs } from "./args";
 
 
 export function generateOptions() {

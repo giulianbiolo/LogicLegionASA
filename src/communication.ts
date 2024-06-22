@@ -1,7 +1,7 @@
 import { CONFIG, me } from "./agent";
 import { agentArgs } from "./args";
-import { type Parcel, type Point2D, type Option, type Desire, desireFromStr, desireStr } from "./types";
-import clc from "chalk";
+import { type Point2D, type Option, type Desire, desireFromStr, desireStr } from "./types";
+
 
 // * communication system
 /**
