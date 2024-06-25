@@ -71,6 +71,7 @@
 The following is a report regarding the detailed steps taken to implement and execute an autonomous agent capable of collecting packages and delivering them to the designated delivery zones in the Deliveroo.js simulation environment. It is divided in two main parts:
 - The first part focuses on the implementation and testing of Agent A, which is responsible for achieving it's tasks autonomously.
 - The second part focuses on the implementation and testing of the code necessary to coordinate two agents, with same underlying engine as the first part agent, such that they can work together to achieve the same goals.
+The entire codebase is written in #link("https://www.typescriptlang.org/")[TypeScript] and intended to be run with #link("https://bun.sh/")[Bun].
 
 = Design and Implementation of Agent A:
 ========================================
@@ -86,7 +87,7 @@ The following is a diagram of the core engine's flow:
 \
 == Sensing The Environment:
 === Parcels Sensing:
-The "onParcelsSensing" hook is called every time a new parcel enters the field of view of the agent. For each we store the parcel's position and score in the agent's beliefs:
+The `onParcelsSensing()` hook is called every time a new parcel enters the field of view of the agent. For each we store the parcel's position and score in the agent's beliefs:
 
 ```typescript
 type Parcel = {
@@ -100,7 +101,7 @@ const parcels: Map<string, Parcel> = new Map();
 
 We don't make the parcel decay with time as it's not particularly relevant. If the agent decides to pick it up, the hook will be called again each time the parcel updates it's score keeping it's belief up to date. Otherwise, if the agent decides to ignore it, having the parcel remain in the memory of the agent might turn advantageous in the future as an alternative to a sort of random walk when the agent runs out of options.
 === Tiles Sensing:
-The "onTile" hook is called at the start for each tile in the map. We store the tiles on a map in the agent's beliefs, which will be used to plan the agent's path. Every delivery tile is stored separately in an array of delivery tiles, and the same goes for spawner tiles as follows:
+The `onTile()` hook is called at the start for each tile in the map. We store the tiles on a map in the agent's beliefs, which will be used to plan the agent's path. Every delivery tile is stored separately in an array of delivery tiles, and the same goes for spawner tiles as follows:
 
 ```typescript
 type Point2D = { x: number, y: number };
@@ -111,7 +112,7 @@ var spawner_tiles: Array<Point2D> = [];
 
 Those will turn useful when the agent will have to plan it's path to deliver a parcel or to random walk, as random walking is more efficient if done over spawner tiles.
 === Agents Sensing:
-the "onAgent" hook is called every time a new agent enters the field of view of the agent. We store the agent's position and id in the agent's beliefs. At the same time, other agents are considered as obstacles when planning the agent's path, and as such, the agent will usually try to avoid them, whenever possible. Agents are saved as follows:
+the `onAgent()` hook is called every time a new agent enters the field of view of the agent. We store the agent's position and id in the agent's beliefs. At the same time, other agents are considered as obstacles when planning the agent's path, and as such, the agent will usually try to avoid them, whenever possible. Agents are saved as follows:
 
 ```typescript
 type Agent = {
