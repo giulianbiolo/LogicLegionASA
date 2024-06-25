@@ -247,4 +247,58 @@ async function loop(): void {
 }
 ```
 == Plan Implementation:
-Plans are implemented in code as various classes, each one representing a different action the agent can perform.
+Plans are classes implementing the `PlanInterface` interface, which has two methods: `isApplicableTo()` and `execute()`. The `isApplicableTo()` method will return true if the plan is applicable for achieving the given intention's option, and the `execute()` method implements the actions that need to take place to achieve the given intention.\
+The various plans inherit from a parent class called `Plan` which implements the `subIntention()` method, used to create and achieve sub-intentions, and the `stop()` method, used to halt the execution of the current Plan, with all it's subIntentions, in case the intention revision loop has decided to replace the currentIntention. The following is a simplified representation of the code in the `plan.ts` module:
+
+```typescript
+interface PlanInterface {
+  isApplicableTo(option: Option): boolean;
+  execute(option: Option): Promise<boolean>;
+}
+class Plan implements PlanInterface {
+  isApplicableTo(option: Option) { return false; }
+  async execute(option: Option): Promise<boolean> { return false; }
+  public stopped: boolean = false;
+  stop() {
+    this.stopped = true;
+    for (const i of this.#sub_intentions) { i.stop(); }
+    this.stopped = false;
+  }
+  #sub_intentions: Array<Intention> = [];
+  async subIntention(predicate: Option): Promise<boolean | Intention> {
+    const sub_intention: Intention = new Intention(predicate);
+    this.#sub_intentions.push(sub_intention);
+    return await sub_intention.achieve();
+  }
+}
+// PickUp Example, the same goes for all the other plans
+class PickUp extends Plan implements PlanInterface {
+  isApplicableTo(option: Option): boolean { return option.desire === Desire.PICK_UP; }
+  async execute(option: Option): Promise<boolean> {
+    if (this.stopped) { throw "stopped"; }
+    let res = tryPickUp(option);
+    if (!res) { throw "stucked"; }
+    return true;
+  }
+}
+```
+When using the basic A\* planner, the following plan classes will be used:
+- `GoPickUp`: used to pick up parcels
+- `GoPutDown`: used to deliver parcels
+- `AStarMove`: used to move to any tile with the A\* planner
+While the following are plan classes used both in the A\* planner and in the PDDL planner:
+- `PickUp`: used to execute the action of picking up a parcel
+- `PutDown`: used to execute the action of delivering a parcel
+
+=== PDDL-Based Planning:
+To implement the PDDL-based planning, the following plans have been written:
+- `GoPickUpPDDL`: used to pick up parcels
+- `GoPutDownPDDL`: used to deliver parcels
+- `RandomWalkToPDDL`: used to randomly walk
+- `PDDLPlan`: used to go to a specific tile
+- `BlindMove`: used to move to a specific tile
+All these plan classes do not execute the actions by themselfes, instead they use the methods in the `pddl.ts` module to get the current representation of the world in PDDL format, then they add a goal to the `problem.pddl` representation, based on the option they are trying to achieve, and finally they call `PDDLPlan` as a subIntention. The `PDDLPlan` class will then call the PDDL solver APIs with the given problem and domain representations, and it will parse and execute the produced `plan.pddl` representation as various subIntentions of `BlindMove` and `PickUp` or `PutDown` plans.
+The following chart represents the flow of the PDDL-based planning:
+#align(center)[#image("images/flow_chart_pddl_plans.png")]
+As for the PDDL Planner in use, we tried using various solutions. One of which was the fast-downward planner, which can still be seen implemented in code in the `planner/PddlOnlineSolver.ts` module as the `offlineSolver()` function. At the moment it requires the user to install the fast-downward planner under the `/opt` folder of the system. This local planning solution is only in experimental state as it requires the user to install the planner on the system, and it still requires improvements. It is extremely faster than the online planner, but it achieves it's speed by using greedy algorithms to solve the problem, and as such it might not always find the optimal solution. Not only that but it also has a sizable impact on the performance of the machine on which it is running, as the agent will execute it possiblt even multiple times a second.\
+Given these limitations, we decided to stick to the online planner, which is slower but more reliable overall.
