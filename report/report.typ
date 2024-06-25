@@ -41,10 +41,6 @@ Its basic requirements are:
 - Exchange information about their mental states to elaborate multi-agent plans
 
 #line(length: 100%)
-*/
-
-// Here begins the actual report
-/*
 = Table of Contents
 
 == Introduction
@@ -297,8 +293,59 @@ To implement the PDDL-based planning, the following plans have been written:
 - `RandomWalkToPDDL`: used to randomly walk
 - `PDDLPlan`: used to go to a specific tile
 - `BlindMove`: used to move to a specific tile
-All these plan classes do not execute the actions by themselfes, instead they use the methods in the `pddl.ts` module to get the current representation of the world in PDDL format, then they add a goal to the `problem.pddl` representation, based on the option they are trying to achieve, and finally they call `PDDLPlan` as a subIntention. The `PDDLPlan` class will then call the PDDL solver APIs with the given problem and domain representations, and it will parse and execute the produced `plan.pddl` representation as various subIntentions of `BlindMove` and `PickUp` or `PutDown` plans.
+All these plan classes do not execute the actions by themselfes, instead they use the methods in the `pddl.ts` module to get the current representation of the world in PDDL format adding a goal to the `problem.pddl` representation, based on the option they are trying to achieve. Finally they call `PDDLPlan` as a subIntention. The `PDDLPlan` class will then call the PDDL solver with the given problem and domain, and it will parse and execute the produced `plan.pddl` as various subIntentions of `BlindMove` and `PickUp` or `PutDown` plans.
 The following chart represents the flow of the PDDL-based planning:
 #align(center)[#image("images/flow_chart_pddl_plans.png")]
-As for the PDDL Planner in use, we tried using various solutions. One of which was the fast-downward planner, which can still be seen implemented in code in the `planner/PddlOnlineSolver.ts` module as the `offlineSolver()` function. At the moment it requires the user to install the fast-downward planner under the `/opt` folder of the system. This local planning solution is only in experimental state as it requires the user to install the planner on the system, and it still requires improvements. It is extremely faster than the online planner, but it achieves it's speed by using greedy algorithms to solve the problem, and as such it might not always find the optimal solution. Not only that but it also has a sizable impact on the performance of the machine on which it is running, as the agent will execute it possiblt even multiple times a second.\
+As for the PDDL Planner in use, we tried using various solutions. One of which was the fast-downward planner, which can still be seen implemented in code in the `planner/PddlOnlineSolver.ts` module as the `offlineSolver()` function. At the moment it requires the user to install the fast-downward planner under the `/opt` folder of the system. This local planning solution is only in experimental state as it requires the user to install the planner on the system, and it still requires improvements. It is extremely faster than the online planner, but it achieves it's speed by using greedy algorithms to solve the problem, and as such it might not always find the optimal solution. Not only that but it also has a sizable impact on the performance of the machine on which it is running, as the agent will execute it possibly even multiple times a second.
 Given these limitations, we decided to stick to the online planner, which is slower but more reliable overall.
+Finally, talking about the PDDL Planner, the domain implements the following actions:
+- `move`: used to move the agent to a specific tile
+- `pickup`: used to pick up a parcel
+- `deliver`: used to deliver a parcel
+- `putdown`: used to put down a parcel
+With the following predicates:
+- `at`: used to represent the agent's position
+- `carrying`: used to represent the parcels carried by the agent
+- `can-move`: used to represent the agent's ability to move to a specific tile
+- `delivery`: used to represent the delivery tiles
+- `delivered`: used to represent the parcels delivered by the agent
+- `blocked`: used to represent the tiles blocked by other agents
+
+= Design And Implementation Of Agent A1 And Agent A2:
+=====================================================
+== Multi-Agent Setup:
+The two agents are implemented as two child processes of the node.js main process. Both of them run the same codebase and are given the information of their own name, token, and their team mate's id.
+The following is the code being executed in the main process:
+```typescript
+function spawnAgent(self_agent: AgentConfig, teammate_agent: AgentConfig) {
+  const agent_process: Subprocess = spawn([
+    "bun","run",`./src/agent.ts`,`host=${AGENTS_CONFIG.host}`,
+    `token=${self_agent.token}`,`teamId=${teammate_agent.id}`,
+    `pddlSolverURL=${AGENTS_CONFIG.pddlSolverURL}`,"usePDDL",
+  ], { stdout: "inherit", stderr: "inherit" });
+}
+spawnAgent(AGENTS_CONFIG.agent_1, AGENTS_CONFIG.agent_2);
+spawnAgent(AGENTS_CONFIG.agent_2, AGENTS_CONFIG.agent_1);
+```
+== Communication:
+The agents communicate with each other through the Deliveroo.JS library using the `onMessage` hook to listen for incoming messages, and the `client.say()` method to send messages to the team mate.
+The `communication.ts` module implements the format of the messages being sent and received. This is done to minimize the overhead in terms of network traffic, as the serialized messages are much smaller and more memory efficient than their JSON objects counterparts, to be precise, we reach a 70% reduction in size on average. This mitigates situations where due to high number of messages being sent, some of them might arrive as already outdated information, especially while both of the agents are moving, since they will send a message for each tile they move to, to keep their respective positions updated.
+=== The Communication Protocol:
+The messages being exchanged can be of the following types:
+- `ON_ME`: used to tell the team mate the agent's current position
+- `ON_PARCELS`: used to update the team mate about any new parcels on the ground
+- `ON_TILE`: used to update the team mate about any other agent's movements
+- `ON_AGENTS`: used to update the agent's beliefs about the other agents
+- `ON_PICKUP`: used to tell the team mate that we picked up a parcel
+- `ON_PUTDOWN`: used to tell the team mate that we put down a parcel
+- `ON_LOCAL_PLANNER`: used only with the offline planner as a mutex to avoid race conditions
+- `ON_OBJECTIVE`: used to tell the team mate about our current objective
+- `ORDER_PUTDOWN`: used to order the team mate to put down a parcel
+- `ORDER_PICKUP`: used to order the team mate to pick up a parcel
+- `ORDER_MOVE_AWAY`: used to order the team mate to move away from a specific tile
+- `UNKNOWN`: used to represent an unknown messages
+=== The Communication Strategy:
+These message types can be divided in three categories:
+- `Belief Updates` are used to keep the team mate's beliefs up to date, those are the `ON_ME`, `ON_PARCELS`, `ON_TILE`, and `ON_AGENTS` messages.
+- `Strategy Updates` are used to keep the team mate informed about the agent's current objective and it's state, those are the `ON_PICKUP`, `ON_PUTDOWN`, `ON_LOCAL_PLANNER`, and `ON_OBJECTIVE` messages.
+- `Imperative Orders` are used to order the team mate to perform a specific action, those are the `ORDER_PUTDOWN`, `ORDER_PICKUP`, and `ORDER_MOVE_AWAY` messages.
