@@ -360,3 +360,37 @@ function validObjOnTeamMate(objective: Option): boolean {
 }
 ```
 This method ensures that if the agents are trying to achieve the same objective, only the closer one will do so, while the other will have to review it.\
+
+== Multi-Agent Exchange Of Parcels:
+The agents have been instructed to exchange parcels in the specific situation where the one holding the parcels can reach a spawner tile, but cannot reach a delivery tile, and the other agent can reach a delivery tile, but cannot reach a spawner tile.\
+The following is the pseudocode of their behaviour implemented in the `plan.ts` module:
+```typescript
+if (
+  currMyObj === Desire.GO_PUT_DOWN
+  && distance(team_agent, me) < 2
+  && nearest_spawner(me) < nearest_spawner(team_agent)
+  && nearest_delivery(me) > nearest_delivery(team_agent)
+  && (currTeamObj === Desire.GO_PICK_UP || Desire.RND_WALK_TO)
+) {
+  // Code for agent holding parcels
+  await sleep(CONFIG.MOVEMENT_DURATION * 2); // Wait for the team mate to move away
+  goTowardsTeamMate();
+  putDownMyParcels();
+  goInOppositeDirection(); // In respect to the team mate
+  await sleep(CONFIG.MOVEMENT_DURATION);
+  return true;
+} else if (
+  distance(team_agent, me) < 2
+  && currMyObj !== Desire.GO_PUT_DOWN
+  && nearest_spawner(me) > nearest_spawner(team_agent)
+  && nearest_delivery(me) < nearest_delivery(team_agent)
+) {
+  // Code for agent not holding parcels
+  if (anyParcelOnTile(me)) { pickUpParcels(); }
+  goOppositeDirection(); // In respect to the team mate
+  await sleep(CONFIG.MOVEMENT_DURATION * 2);
+  goTowardsTeamMate();
+  if (anyParcelOnTile(me)) { pickUpParcels(); }
+  return true;
+}
+```
