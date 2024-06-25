@@ -16,9 +16,6 @@ import { type Point2D, type Option, type Desire, desireFromStr, desireStr } from
  * @property {number} ON_PUTDOWN - Message about the putdown
  * @property {number} ON_LOCAL_PLANNER - Message about the local planner
  * @property {number} ON_OBJECTIVE - Message about the objective
- * @property {number} ORDER_PUTDOWN - Order to putdown
- * @property {number} ORDER_PICKUP - Order to pickup
- * @property {number} ORDER_MOVE_AWAY - Order to move away
  * @property {number} UNKNOWN - Unknown message
  */
 export enum MsgType {
@@ -30,9 +27,6 @@ export enum MsgType {
     ON_PUTDOWN,
     ON_LOCAL_PLANNER,
     ON_OBJECTIVE,
-    ORDER_PUTDOWN,
-    ORDER_PICKUP,
-    ORDER_MOVE_AWAY,
     UNKNOWN,
 };
 
@@ -199,15 +193,6 @@ export class MsgBuilder {
                 if (this.msg.objective === undefined) { return "k:8;"; }
                 return "k:7;d:" + desireStr(this.msg.objective?.desire) + ";p:" + Math.round(this.msg.objective?.position.x) + "," + Math.round(this.msg.objective?.position.y);
                 break;
-            case MsgType.ORDER_PUTDOWN:
-                return "k:9;";
-                break;
-            case MsgType.ORDER_PICKUP:
-                return "k:10;";
-                break;
-            case MsgType.ORDER_MOVE_AWAY:
-                return "k:11;";
-                break;
             default:
                 return "k:8;";
                 break;
@@ -274,15 +259,6 @@ export class MsgBuilder {
                 let desire = parts[1].split(":")[1];
                 let pos_obj = parts[2].split(":")[1].split(",");
                 return { kind: MsgType.ON_OBJECTIVE, objective: { desire: desireFromStr(desire), position: { x: parseInt(pos_obj[0]), y: parseInt(pos_obj[1]) } } };
-                break;
-            case MsgType.ORDER_PUTDOWN:
-                return { kind: MsgType.ORDER_PUTDOWN };
-                break;
-            case MsgType.ORDER_PICKUP:
-                return { kind: MsgType.ORDER_PICKUP };
-                break;
-            case MsgType.ORDER_MOVE_AWAY:
-                return { kind: MsgType.ORDER_MOVE_AWAY };
                 break;
             default:
                 return { kind: MsgType.UNKNOWN };

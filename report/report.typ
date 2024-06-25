@@ -15,23 +15,10 @@
 #show raw: set text(size: 8pt)
 
 /*
-=== Report
-- Explain what you have done and how (max 10 pages – pdf file)
-- Use whatever you think it is important to describe your work (diagrams, piece of code, data, experiments, tests, etc)
-
 === Validation and test
 - Use scenarios of Challenge 1 and Challenge 2 to validate and test your software
 - Validate and test your Agent A in the scenarios of Challenge 1
 - Validate and test your team in the three scenarios of Challenge 2
-
-== Agent A
-Agent A should be able to collect packages and deliver them into the delivery zones.
-
-Its basic requirements are:
-- Sense the environment
-- Revise Beliefs
-- Revise Intentions
-- Elaborate plans using PDDL-based planner
 
 == Agent A1+A2
 - Explicit a game strategy and coordination mechanisms (to be described in the report)
@@ -40,28 +27,6 @@ Its basic requirements are:
 - Exchange information about their mental states to coordinate their activities
 - Exchange information about their mental states to elaborate multi-agent plans
 
-#line(length: 100%)
-= Table of Contents
-
-== Introduction
-- Project Overview
-- Objectives
-
-== Background
-- Overview of Agent-Based Systems
-- Introduction to PDDL (Planning Domain Definition Language)
-
-== Design and Implementation of Agent A
-- Architecture of Agent A
-  - System Architecture Diagram
-  - Components and Their Functions
-- Algorithms and Techniques Used
-  - Sensing Algorithm
-  - Belief Revision Algorithm
-  - Intention Revision Algorithm
-  - PDDL-Based Planning
-- Code Snippets and Explanation
-
 == Validation and Testing of Agent A
 - Testing Scenarios for Challenge 1
   - Description of Scenarios
@@ -69,20 +34,6 @@ Its basic requirements are:
 - Analysis of Agent A’s Performance
   - Metrics Used for Validation
   - Performance Analysis
-
-== Design and Implementation of Agent A1 and Agent A2
-- Functional Requirements
-  - Game Strategy and Coordination Mechanisms
-  - Information Exchange Protocols
-    - Environment Information
-    - Mental States Information
-- Architecture of Agent A1 and Agent A2
-  - System Architecture Diagram
-  - Coordination Mechanisms
-- Algorithms and Techniques Used
-  - Communication Algorithms
-  - Multi-Agent Planning Algorithms
-- Code Snippets and Explanation
 
 == Validation and Testing of Agent A1 and Agent A2
 - Testing Scenarios for Challenge 2
@@ -327,6 +278,10 @@ function spawnAgent(self_agent: AgentConfig, teammate_agent: AgentConfig) {
 spawnAgent(AGENTS_CONFIG.agent_1, AGENTS_CONFIG.agent_2);
 spawnAgent(AGENTS_CONFIG.agent_2, AGENTS_CONFIG.agent_1);
 ```
+=== Game Strategy:
+The game strategy is that of two mainly independent agents. They communicate to share the entirety of their beliefs about the world, and they also share their short therm objectives. With this information they try to not get in each other's way, in terms of path planning, and they don't try to achieve the same goal at the same time.\
+At the same time, if they fall in a situation where they need the other agent's help to achieve a goal, as in a situation where one cannot reach a delivery tile and the other can, but cannot reach a parcel spawner, they will execute specific actions to exchange the parcels, and then they will carry on with their respective goals.\
+
 == Communication:
 The agents communicate with each other through the Deliveroo.JS library using the `onMessage` hook to listen for incoming messages, and the `client.say()` method to send messages to the team mate.
 The `communication.ts` module implements the format of the messages being sent and received. This is done to minimize the overhead in terms of network traffic, as the serialized messages are much smaller and more memory efficient than their JSON objects counterparts, to be precise, we reach a 70% reduction in size on average. This mitigates situations where due to high number of messages being sent, some of them might arrive as already outdated information, especially while both of the agents are moving, since they will send a message for each tile they move to, to keep their respective positions updated.
@@ -340,12 +295,68 @@ The messages being exchanged can be of the following types:
 - `ON_PUTDOWN`: used to tell the team mate that we put down a parcel
 - `ON_LOCAL_PLANNER`: used only with the offline planner as a mutex to avoid race conditions
 - `ON_OBJECTIVE`: used to tell the team mate about our current objective
-- `ORDER_PUTDOWN`: used to order the team mate to put down a parcel
-- `ORDER_PICKUP`: used to order the team mate to pick up a parcel
-- `ORDER_MOVE_AWAY`: used to order the team mate to move away from a specific tile
 - `UNKNOWN`: used to represent an unknown messages
 === The Communication Strategy:
-These message types can be divided in three categories:
-- `Belief Updates` are used to keep the team mate's beliefs up to date, those are the `ON_ME`, `ON_PARCELS`, `ON_TILE`, and `ON_AGENTS` messages.
-- `Strategy Updates` are used to keep the team mate informed about the agent's current objective and it's state, those are the `ON_PICKUP`, `ON_PUTDOWN`, `ON_LOCAL_PLANNER`, and `ON_OBJECTIVE` messages.
-- `Imperative Orders` are used to order the team mate to perform a specific action, those are the `ORDER_PUTDOWN`, `ORDER_PICKUP`, and `ORDER_MOVE_AWAY` messages.
+These message types can be divided in two categories:
+- `Belief Updates` : `ON_ME`, `ON_PARCELS`, `ON_TILE`, `ON_AGENTS`
+- `Strategy Updates` : `ON_PICKUP`, `ON_PUTDOWN`, `ON_LOCAL_PLANNER`, `ON_OBJECTIVE`
+The `Belief Updates` serve the purpose of keeping the team mate updated about the current state of the world, while the `Strategy Updates` serve the purpose of keeping the team mate updated about the current strategy of the agent.\
+==== Belief Updates:
+The various sensing hooks have been updated with the respective messages to be sent to the team mate. The following are the added lines of code:
+```typescript
+// onYou()
+if (teamId !== null) {
+  let msg: MsgBuilder = new MsgBuilder().kind(MsgType.ON_ME).position({ x: x, y: y });
+  if (msg.valid()) { client.say(teamId, msg.build()); }
+}
+// onParcelsSending()
+if (teamId !== null) {
+  let msg: MsgBuilder = new MsgBuilder().kind(MsgType.ON_PARCELS).parcels(perceived_parcels);
+  if (msg.valid()) { client.say(teamId, msg.build()); }
+}
+// onTile()
+if (teamId !== null) {
+  let msg: MsgBuilder = new MsgBuilder().kind(MsgType.ON_TILE).tile(new_tile);
+  if (msg.valid()) { client.say(teamId, msg.build()); }
+}
+// onAgent()
+if (teamId !== null) {
+  let msg: MsgBuilder = new MsgBuilder().kind(MsgType.ON_AGENTS).agents(new_agents);
+  if (msg.valid()) { client.say(teamId, msg.build()); }
+}
+```
+==== Strategy Updates:
+The `Intention.achieve()` method now features the following new lines of code:
+
+```typescript
+let ignored_desires: Desire[] = [Desire.BLIND_GO_TO, Desire.PICK_UP, Desire.PUT_DOWN, ...];
+if (teamId !== null && !ignored_desires.includes(this.predicate.desire)) {
+  let msg: MsgBuilder = new MsgBuilder().kind(MsgType.ON_OBJECTIVE).objective(this.predicate);
+  if (msg.valid()) { client.say(teamId, msg.build()); }
+  setCurrMyObj(this.predicate);
+}
+```
+And the `PickUp.execute()` and `PutDown.execute()` methods now feature the following new lines of code:
+
+```typescript
+// PickUp.execute()
+if (teamId !== null && option.id !== null) {
+  let msg: MsgBuilder = new MsgBuilder().kind(MsgType.ON_PICKUP).pickup({ id: option.id });
+  if (msg.valid()) { client.say(teamId, msg.build()); }
+}
+// PutDown.execute()
+if (teamId !== null && option.id !== null) {
+  let msg: MsgBuilder = new MsgBuilder().kind(MsgType.ON_PUTDOWN).putdown({ id: option.id });
+  if (msg.valid()) { client.say(teamId, msg.build()); }
+}
+```
+This information is then used by both of the agents to ensure they don't try to achieve the same goal at the same time as implemented in the `validObjOnTeamMate()` method of the `intention.ts` module.\
+
+```typescript
+function validObjOnTeamMate(objective: Option): boolean {
+  if (currTeamObj === objective)
+    return distance(currTeamObj, me) < distance(currTeamObj, team_agent);
+  return true;
+}
+```
+This method ensures that if the agents are trying to achieve the same objective, only the closer one will do so, while the other will have to review it.\
