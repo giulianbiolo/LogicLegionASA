@@ -15,6 +15,8 @@
     margin: (top: 0.5cm)
   )
   set text(font: "Source Sans Pro", lang: "en")
+  show math.equation: set text(font: "Fira Math")
+  show raw: set text(font: "Fira Code")
   // Import the logo from the assets folder.
   
   grid(

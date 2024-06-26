@@ -262,7 +262,7 @@ With the following predicates:
 - `delivery`: used to represent the delivery tiles
 - `delivered`: used to represent the parcels delivered by the agent
 - `blocked`: used to represent the tiles blocked by other agents
-
+#line(length: 100%)
 = Design And Implementation Of Agent A1 And Agent A2:
 =====================================================
 == Multi-Agent Setup:
