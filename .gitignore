@@ -3,7 +3,7 @@ sas_plan
 output.sas
 *.pddl
 
-report/
+report/*.pdf
 
 # Logs
 logs
