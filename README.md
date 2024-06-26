@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/giulianbiolo/asa_agent/blob/main/report/images/f1_minimal_logo.png" width="100" />
+  <img src="https://github.com/giulianbiolo/asa_agent/blob/main/report/images/f1_style_logo_transparent.png" width="150" />
 </p>
 <p align="center">
     <h1 align="center">LLASA</h1>
