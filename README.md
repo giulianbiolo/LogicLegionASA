@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/giulianbiolo/asa_agent/blob/main/report/images/f1_style_logo_transparent.png" width="150" />
+  <img src="https://github.com/giulianbiolo/LogicLegionASA/blob/main/report/images/f1_style_logo_transparent.png" width="150" />
 </p>
 <p align="center">
     <h1 align="center">LLASA</h1>
@@ -8,10 +8,10 @@
   Logic Legion Autonomous Agent for the Autonomous Software Agents UniTN Course
 </p>
 <p align="center">
-	<img src="https://img.shields.io/github/license/giulianbiolo/asa_agent?style=flat&color=0080ff" alt="license">
-	<img src="https://img.shields.io/github/last-commit/giulianbiolo/asa_agent?style=flat&logo=git&logoColor=white&color=0080ff" alt="last-commit">
-	<img src="https://img.shields.io/github/languages/top/giulianbiolo/asa_agent?style=flat&color=0080ff" alt="repo-top-language">
-	<img src="https://img.shields.io/github/languages/count/giulianbiolo/asa_agent?style=flat&color=0080ff" alt="repo-language-count">
+	<img src="https://img.shields.io/github/license/giulianbiolo/LogicLegionASA?style=flat&color=0080ff" alt="license">
+	<img src="https://img.shields.io/github/last-commit/giulianbiolo/LogicLegionASA?style=flat&logo=git&logoColor=white&color=0080ff" alt="last-commit">
+	<img src="https://img.shields.io/github/languages/top/giulianbiolo/LogicLegionASA?style=flat&color=0080ff" alt="repo-top-language">
+	<img src="https://img.shields.io/github/languages/count/giulianbiolo/LogicLegionASA?style=flat&color=0080ff" alt="repo-language-count">
 <p>
 <p align="center">
 		<em>Developed with the software and tools below.</em>
@@ -31,7 +31,7 @@
 > - [📂 Repository Structure](#-repository-structure)
 > - [🚀 Getting Started](#-getting-started)
 >   - [⚙️ Installation](#️-installation)
->   - [🤖 Running asa_agent](#-running-asa_agent)
+>   - [🤖 Running LogicLegionASA](#-running-LogicLegionASA)
 > - [🛠 Project Roadmap](#-project-roadmap)
 > - [📄 License](#-license)
 
@@ -55,7 +55,7 @@ In addition, the agent is also capable of coordinating with another agent in a c
 ## 📂 Repository Structure
 
 ```sh
-└── asa_agent/
+└── LogicLegionASA/
     ├── LICENSE
     ├── README.md
     ├── agent.js
@@ -107,16 +107,16 @@ Ensure you have the following dependencies installed on your system:
 
 ### ⚙️ Installation
 
-1. Clone the asa_agent repository:
+1. Clone the LogicLegionASA repository:
 
 ```sh
-git clone https://github.com/giulianbiolo/asa_agent
+git clone https://github.com/giulianbiolo/LogicLegionASA
 ```
 
 2. Change to the project directory:
 
 ```sh
-cd asa_agent
+cd LogicLegionASA
 ```
 
 3. Install the dependencies:
@@ -132,7 +132,7 @@ First of all download and execute the [Deliveroo.js](https://github.com/unitn-AS
 Then set the constants in the config.ts file accordingly.
 Finally if you want to use the A* pathfinder comment out the "usePDDL" argument in the index.ts or single.ts files.
 
-### 🤖 Running asa_agent
+### 🤖 Running LogicLegionASA
 
 Use the following command to run the single agent:
 
