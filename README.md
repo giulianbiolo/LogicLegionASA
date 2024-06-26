@@ -48,7 +48,8 @@ In addition, the agent is also capable of coordinating with another agent in a c
 
 ## 📦 Features
 
-<code>► INSERT-TEXT-HERE</code>
+The developed agent is capable of exploring the Deliveroo.js game world and pickup and deliver parcels to the correct delivery zones to score points.
+Not only that, a multi-agent variant has been developed, where two agents can explore the world sharing informations between them to accomplish their own goals and even execute and accomplish more complex multi-agent objectives.
 
 ---
 
