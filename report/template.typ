@@ -36,7 +36,7 @@
     grid.cell(
       //image("images/abstract_logo_transparent.png", width: 15%)
       //image("images/f1_minimal_logo_transparent.png", width: 15%)
-      image("images/f1_style_logo_transparent.png", width: 15%)
+      image("images/f1_style_logo_transparent.svg", width: 15%)
     ),
   )
 
