@@ -30,7 +30,7 @@
         #v(1em, weak: true)
         #date
         #v(1em, weak: true)
-        #block(link("https://www.github.com/giulianbiolo/asa_agent")[github.com/giulianbiolo/asa_agent])
+        #block(link("https://www.github.com/giulianbiolo/LogicLegionASA")[github.com/giulianbiolo/LogicLegionASA])
       ]
     ),
     grid.cell(
@@ -47,7 +47,7 @@
   //   #v(1em, weak: true)
   //   #date
   //   #v(1em, weak: true)
-  //   #block(link("https://www.github.com/giulianbiolo/asa_agent")[github.com/giulianbiolo/asa_agent])
+  //   #block(link("https://www.github.com/giulianbiolo/LogicLegionASA")[github.com/giulianbiolo/LogicLegionASA])
   // ]
 
   // Author information.
